@@ -5,8 +5,8 @@ import { GameEvent, Tribute } from '../types';
 const isStarving = (t: Tribute) => t.stats.hunger > 80;
 const isInsane = (t: Tribute) => t.stats.sanity < 40;
 const isExhausted = (t: Tribute) => t.stats.exhaustion > 80;
-const isInjured = (t: Tribute) => t.stats.sanity < 60 || t.stats.hunger > 50; 
-const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30;
+const isInjured = (t: Tribute) => t.stats.health < 60 || t.stats.sanity < 60; 
+const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30 || t.stats.health < 30;
 
 // --- BLOODBATH ---
 export const bloodbathEvents: GameEvent[] = [
@@ -17,7 +17,8 @@ export const bloodbathEvents: GameEvent[] = [
   { text: "(P1) strips (P2) of their weapons and supplies.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Theft'] },
   { text: "(P1) and (P2) fight for a bag. (P1) strangles (P2) with the straps.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.0, tags: ['Kill'] },
   { text: "(P1) steps off the podium too soon and blows up.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.05, tags: ['Fail'] },
-  { text: "(P1) finds a bow, some arrows, and a quiver.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Bow & Arrows'] },
+  // Updated: Split Bow & Arrows
+  { text: "(P1) finds a bow and a quiver of arrows.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Bow', 'Arrows'] },
   { text: "(P1), (P2), and (P3) work together to get as many supplies as possible.", playerCount: 3, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
   { text: "(P1) kills (P2) with their own weapon.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
   { text: "(P1) bashes (P2)'s head against a rock.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
@@ -26,8 +27,8 @@ export const bloodbathEvents: GameEvent[] = [
   { text: "(P1) grabs a shovel.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Shovel'] },
   { text: "(P1) grabs a bottle of alcohol and a rag.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Molotov Components'] },
   { text: "(P1) finds a canteen full of water.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'] },
-  { text: "(P1) falls down and hurts themselves.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Fail'] },
-  { text: "(P1) breaks (P2)'s nose for a basket of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Food'] },
+  { text: "(P1) falls down and hurts themselves.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Fail'], healthDamage: 15 },
+  { text: "(P1) breaks (P2)'s nose for a basket of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Food'], healthDamage: 10 },
 ];
 
 // --- GENERAL / DAY ---
@@ -39,7 +40,7 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) searches for a water source.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Survival'] },
   { text: "(P1) camouflages themselves in the bushes.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Survival', 'Sneak'] },
   { text: "(P1) questions their sanity.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.8, tags: ['Idle', 'Sanity'] },
-  { text: "(P1) practices their archery.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'], itemRequired: ['Bow & Arrows'] },
+  { text: "(P1) practices their archery.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'], itemRequired: ['Bow', 'Arrows'] },
   { text: "(P1) thinks about home.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
   
   // Trait Specific: Survivalist
@@ -49,6 +50,13 @@ export const generalEvents: GameEvent[] = [
   // Trait Specific: Charming
   { text: "(P1) flashes a dazzling smile at a camera, receiving a gift from a sponsor.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Sponsor', 'Food'], traitRequired: ['Charming'] },
   { text: "(P1) convinces (P2) not to kill them using their charm.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Social', 'Mercy'], traitRequired: ['Charming'] },
+
+  // Trait Specific: Trained (Career)
+  { text: "(P1) spars with a dummy, showing off their training.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Idle'], traitRequired: ['Trained'] },
+  { text: "(P1) intimidates (P2) into giving up their food.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Social', 'Theft'], traitRequired: ['Trained'] },
+
+  // Trait Specific: Underdog
+  { text: "(P1) manages to stay hidden despite nearly being stepped on.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Sneak'], traitRequired: ['Underdog'] },
 
   // Item Discovery & Crafting
   { text: "(P1) receives a First Aid Kit from a sponsor.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Sponsor'], itemGain: ['First Aid Kit'] },
@@ -73,19 +81,20 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) stalks (P2).", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Hunt'] },
   { text: "(P1) sees smoke rising in the distance, but decides not to investigate.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Travel'] },
 
-  // Starvation / Status
-  { text: "(P1) passes out from hunger.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Starve'], condition: (a) => isStarving(a[0]) },
+  // Starvation / Status / Fail
+  { text: "(P1) passes out from hunger.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Starve'], condition: (a) => isStarving(a[0]), healthDamage: 10 },
   { text: "(P1) eats toxic berries in desperation.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Starve'], condition: (a) => isStarving(a[0]) },
-  { text: "(P1) drinks tainted water and becomes ill.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Fail'] },
+  { text: "(P1) drinks tainted water and becomes ill.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Fail'], healthDamage: 25 },
+  { text: "(P1) sprains their ankle while running.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Fail'], healthDamage: 15 },
   
   // Insanity
-  { text: "(P1) hallucinates that (P2) is a monster and attacks!", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Insanity'], condition: (a) => isInsane(a[0]) },
+  { text: "(P1) hallucinates that (P2) is a monster and attacks!", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Insanity', 'Attack'], condition: (a) => isInsane(a[0]), healthDamage: 10 },
   { text: "(P1) screams at the sky, begging for it to end.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Insanity'], condition: (a) => isInsane(a[0]) },
   { text: "(P1) talks to a rock, convinced it is their ally.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Insanity'], condition: (a) => isInsane(a[0]) },
 
   // --- DESPERATE MEASURES (New) ---
-  { text: "(P1), starving, attacks (P2) in a frenzy to steal their supplies!", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Desperate', 'Attack'], condition: (a) => isDesperate(a[0]) },
-  { text: "(P1) eats raw meat from a dead animal out of desperation.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 4.0, tags: ['Desperate', 'Food'], condition: (a) => isDesperate(a[0]) },
+  { text: "(P1), starving, attacks (P2) in a frenzy to steal their supplies!", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Desperate', 'Attack'], condition: (a) => isDesperate(a[0]), healthDamage: 5 },
+  { text: "(P1) eats raw meat from a dead animal out of desperation.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 4.0, tags: ['Desperate', 'Food'], condition: (a) => isDesperate(a[0]), healthDamage: 5 },
   { text: "(P1) chases (P2) for miles, fueled purely by adrenaline and madness.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 4.0, tags: ['Desperate', 'Hunt'], condition: (a) => isDesperate(a[0]) },
   { text: "(P1) eats a handful of unknown mushrooms. They miraculously feel full.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Desperate', 'Food'], condition: (a) => isStarving(a[0]) },
   { text: "(P1) attempts to climb a cliff to reach a bird's nest but falls to their death.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Desperate', 'Accident'], condition: (a) => isDesperate(a[0]) },
@@ -106,8 +115,8 @@ export const fatalEvents: GameEvent[] = [
   { text: "(P1) strangles (P2) with a rope.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
   { text: "(P1) bleeds out from untreated injuries.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Death'], condition: (a) => isInjured(a[0]) },
 
-  // Weapon Specific
-  { text: "(P1) shoots an arrow into (P2)'s head.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Bow & Arrows'] },
+  // Weapon Specific - FIXED Infinite Ammo
+  { text: "(P1) shoots an arrow into (P2)'s head.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Bow', 'Arrows'], consumesItem: ['Arrows'] },
   { text: "(P1) throws a spear into (P2)'s chest.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Spear'] },
   { text: "(P1) detonates explosives, killing (P2) and (P3) instantly.", playerCount: 3, fatalities: true, killerIndices: [0], victimIndices: [1, 2], weight: 10.0, tags: ['Kill', 'Explosive'], itemRequired: ['Explosives'], consumesItem: true },
   { text: "(P1) bashes (P2) with a shovel.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Shovel'] },
@@ -136,4 +145,12 @@ export const nightEvents: GameEvent[] = [
   { text: "(P1) and (P2) huddle for warmth.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
   { text: "(P1) sees a fire in the distance but stays put.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Caution'] },
   { text: "(P1) loses their grip on reality.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Insanity'], condition: (a) => isInsane(a[0]) },
+];
+
+// --- ARENA EVENTS (Global) ---
+export const arenaEvents = [
+    { text: "A thick, acidic fog rolls into the arena.", damage: 15, type: 'Weather' },
+    { text: "A feast is announced at the Cornucopia!", heal: 50, feed: 100, type: 'Feast' },
+    { text: "Wolf mutts are unleashed on the arena.", damage: 25, type: 'Beast' },
+    { text: "The temperature drops below freezing.", damage: 10, type: 'Weather' },
 ];

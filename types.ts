@@ -4,7 +4,7 @@ export enum TributeStatus {
   Dead = 'Dead'
 }
 
-export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming';
+export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming' | 'Trained' | 'Underdog';
 
 export interface Tribute {
   id: string;
@@ -16,6 +16,7 @@ export interface Tribute {
   inventory: string[];
   // New Deep Sim Stats
   stats: {
+    health: number; // 0-100 (New: Physical HP)
     sanity: number; // 0-100 (Low = Hallucinations/Suicide)
     hunger: number; // 0-100 (High = Starvation)
     exhaustion: number; // 0-100 (High = Sleep/Vulnerable)
@@ -42,13 +43,16 @@ export interface GameEvent {
   
   // Advanced Logic
   weight?: number; // Default 1.0. Higher = more likely.
-  tags?: string[]; // 'Kill', 'Social', 'Food', 'Sleep', 'Sanity', 'Heal', 'Desperate'
+  tags?: string[]; // 'Kill', 'Social', 'Food', 'Sleep', 'Sanity', 'Heal', 'Desperate', 'Fail'
   
   // New Memory/Constraint System
   itemGain?: string[];      // Items added to P1's inventory
   itemRequired?: string[];  // Items P1 MUST have for this event
-  consumesItem?: boolean;   // If true, removes the required items from P1
+  consumesItem?: boolean | string[];   // If true removes all required, if array removes specific items
   traitRequired?: Trait[];  // P1 must have one of these traits
+  
+  // New Health System
+  healthDamage?: number; // Amount of HP P1 loses (for Fail/Accident events)
 
   // Logic checks
   condition?: (actors: Tribute[]) => boolean;
@@ -77,4 +81,5 @@ export interface GameState {
   totalEvents: number;
   gameRunning: boolean;
   daysSinceLastDeath: number; // For "The Director" pacing
+  sponsorPoints: number; // New User Interaction
 }

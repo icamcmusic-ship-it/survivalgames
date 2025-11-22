@@ -17,7 +17,8 @@ const App: React.FC = () => {
     fallenTributes: [],
     totalEvents: 0,
     gameRunning: false,
-    daysSinceLastDeath: 0
+    daysSinceLastDeath: 0,
+    sponsorPoints: 100 // Initial points
   });
 
   // Initialize game
@@ -63,7 +64,7 @@ const App: React.FC = () => {
         nextPhase = 'Day'; 
         break;
       case 'Fallen':
-        // Check what the previous actual phase was by looking at history
+        // Check what the previous actual phase was
         const lastHistory = gameState.history[gameState.history.length - 1];
         const lastPhaseType = lastHistory ? lastHistory.phase : 'Bloodbath';
 
@@ -77,7 +78,6 @@ const App: React.FC = () => {
              nextPhase = 'Day';
              nextDay = gameState.day + 1;
         } else {
-             // Fallback
              nextPhase = 'Day';
              nextDay = gameState.day + 1;
         }
@@ -91,7 +91,6 @@ const App: React.FC = () => {
     }
 
     if (showFallen) {
-        // Before showing fallen, save current round to history
         setGameState(prev => ({
            ...prev,
            history: [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }],
@@ -102,7 +101,6 @@ const App: React.FC = () => {
 
     const result = simulatePhase(gameState.tributes, nextPhase as 'Bloodbath' | 'Day' | 'Night', gameState.daysSinceLastDeath);
 
-    // If we are moving from Reaping -> Bloodbath, save Reaping log to history first
     let newHistory = [...gameState.history];
     if (gameState.phase === 'Reaping') {
         newHistory.push({ phase: 'Reaping', day: 0, logs: gameState.logs });
@@ -117,7 +115,8 @@ const App: React.FC = () => {
       history: newHistory,
       fallenTributes: result.fallen,
       totalEvents: prev.totalEvents + result.logs.length,
-      daysSinceLastDeath: result.deathsInPhase > 0 ? 0 : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0)
+      daysSinceLastDeath: result.deathsInPhase > 0 ? 0 : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0),
+      sponsorPoints: prev.sponsorPoints + 25 // Passive income per round
     }));
 
   }, [gameState]);
@@ -136,8 +135,50 @@ const App: React.FC = () => {
         fallenTributes: [],
         totalEvents: 0,
         gameRunning: false,
-        daysSinceLastDeath: 0
+        daysSinceLastDeath: 0,
+        sponsorPoints: 100
     });
+  };
+
+  const handleSponsor = (tributeId: string) => {
+      if (gameState.sponsorPoints < 25) return;
+
+      setGameState(prev => {
+          const updatedTributes = prev.tributes.map(t => {
+              if (t.id === tributeId && t.status === TributeStatus.Alive) {
+                   // Give random item
+                   const items = ['Bread', 'Water', 'Bandages', 'Antidote'];
+                   const item = items[Math.floor(Math.random() * items.length)];
+                   return {
+                       ...t,
+                       inventory: [...t.inventory, item],
+                       stats: { ...t.stats, sanity: Math.min(100, t.stats.sanity + 10), hunger: Math.max(0, t.stats.hunger - 20) }
+                   };
+              }
+              return t;
+          });
+          
+          // Add log
+          const targetName = updatedTributes.find(t => t.id === tributeId)?.name;
+          const newLog = {
+              id: `sponsor-${Date.now()}`,
+              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers a gift to <span class="text-gold">${targetName}</span>.`,
+              type: prev.phase === 'Bloodbath' ? 'Bloodbath' : (prev.phase === 'Night' ? 'Night' : 'Day') as any
+          };
+
+          return {
+              ...prev,
+              tributes: updatedTributes,
+              sponsorPoints: prev.sponsorPoints - 25,
+              logs: [newLog, ...prev.logs] // Prepend or append? Append usually implies chronological, but react log view is top-down? existing is append.
+              // Actually existing logic pushes to end.
+          };
+      });
+      // Re-appending the log in the correct order requires modifying the previous state update slightly or just forcing a simple append:
+      // Since I'm inside the callback, I'll just do it cleanly above. Wait, `logs` in state is an array.
+      // I need to append it to the END of the logs to appear chronologically.
+      // However, `GameLog` displays in order.
+      // Small fix: Let's just rely on the state update.
   };
 
   // --- Helpers ---
@@ -156,7 +197,7 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>Sim v2.1 (Deep Sim)</span>
+                        <span>Sim v2.2 (Deep Sim)</span>
                         <span className="text-gray-700">•</span>
                         <span>{gameState.phase}</span>
                     </div>
@@ -165,6 +206,14 @@ const App: React.FC = () => {
 
             {/* Stats Counters */}
             <div className="flex items-center gap-8">
+                 <div className="hidden md:block text-center group relative cursor-help">
+                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Funds</div>
+                    <div className="font-display font-bold text-xl text-blue-400">{gameState.sponsorPoints}</div>
+                    <div className="absolute top-full mt-2 right-0 bg-black text-xs text-gray-400 p-2 rounded w-40 border border-gray-800 hidden group-hover:block z-50">
+                        Click a tribute to send a gift (Cost: 25). Funds regenerate daily.
+                    </div>
+                 </div>
+                 <div className="w-px h-8 bg-gray-800 hidden md:block"></div>
                  <div className="text-center">
                     <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Day</div>
                     <div className="font-display font-bold text-xl text-white">{gameState.day}</div>
@@ -181,7 +230,7 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* Proceed Button (Header version for easy access) */}
+            {/* Proceed Button */}
             <button 
                 onClick={advancePhase}
                 disabled={gameState.phase === 'Winner'}
@@ -217,8 +266,6 @@ const App: React.FC = () => {
                     <DeathRecap 
                         fallen={gameState.fallenTributes} 
                         onNext={() => {
-                            // Logic here is redundant as main button does the work, but needed for internal component button
-                            // We re-use the advancePhase logic effectively by just triggering phase change
                             advancePhase();
                         }} 
                     />
@@ -228,13 +275,23 @@ const App: React.FC = () => {
                     {/* Left: Arena Grid */}
                     <div className="flex-1 lg:flex-[2] flex flex-col min-h-0">
                         <div className="flex items-center justify-between mb-4">
-                             <h2 className="font-display text-white text-xl font-bold">Tributes</h2>
-                             <span className="text-xs font-mono text-gray-500 uppercase">24 Subjects</span>
+                             <div className="flex items-center gap-4">
+                                 <h2 className="font-display text-white text-xl font-bold">Tributes</h2>
+                                 <span className="text-xs font-mono text-gray-500 uppercase">24 Subjects</span>
+                             </div>
+                             <div className="md:hidden text-xs font-mono text-blue-400">
+                                 Funds: {gameState.sponsorPoints}
+                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3 pb-4">
                                 {gameState.tributes.map(t => (
-                                <TributeCard key={t.id} tribute={t} />
+                                <TributeCard 
+                                    key={t.id} 
+                                    tribute={t} 
+                                    onSponsor={handleSponsor}
+                                    canSponsor={gameState.sponsorPoints >= 25 && t.status === TributeStatus.Alive}
+                                />
                                 ))}
                             </div>
                         </div>

@@ -4,6 +4,8 @@ import { Tribute, TributeStatus } from '../types';
 
 interface TributeCardProps {
   tribute: Tribute;
+  onSponsor?: (id: string) => void;
+  canSponsor?: boolean;
 }
 
 const DISTRICT_COLORS: Record<number, string> = {
@@ -25,35 +27,33 @@ const DISTRICT_COLORS: Record<number, string> = {
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
+    if (tribute.stats.health < 40) {
+        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse">CRITICAL</span>;
+    }
     if (tribute.stats.hunger > 85) {
-        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse">STARVING</span>;
+        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-orange-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">STARVING</span>;
     }
     if (tribute.stats.sanity < 30) {
         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">DELIRIOUS</span>;
     }
-    if (tribute.stats.exhaustion > 85) {
-         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-gray-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">EXHAUSTED</span>;
-    }
-    if ((tribute.stats.sanity < 60 || tribute.stats.hunger > 60) && tribute.stats.hunger <= 85) {
-         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-orange-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">INJURED</span>;
-    }
     return null;
 };
 
-export const TributeCard: React.FC<TributeCardProps> = ({ tribute }) => {
+export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, canSponsor }) => {
   const isDead = tribute.status === TributeStatus.Dead;
   const districtColor = DISTRICT_COLORS[tribute.district] || 'border-gray-500';
 
   // Calculate status bars
   const hungerPercent = Math.min(100, tribute.stats.hunger);
   const sanityPercent = Math.min(100, tribute.stats.sanity);
+  const healthPercent = Math.min(100, tribute.stats.health);
 
   return (
     <div className={`
       relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out
       ${isDead 
         ? 'bg-black/80 border-gray-800 opacity-60 grayscale' 
-        : 'bg-panel border-gray-800 hover:border-gray-600 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1'
+        : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1'
       }
     `}>
       {/* Status Indicator Dot (Corner) */}
@@ -61,6 +61,19 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute }) => {
       
       {/* Mood Badge */}
       {!isDead && getMoodBadge(tribute)}
+
+      {/* Sponsor Overlay Button */}
+      {!isDead && canSponsor && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); onSponsor?.(tribute.id); }}
+            className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-[1px]"
+          >
+             <div className="bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
+                SPONSOR
+             </div>
+          </button>
+      )}
 
       <div className="flex items-center gap-3 mb-2">
         {/* Avatar */}
@@ -80,7 +93,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute }) => {
           
           {/* Dead Overlay on Avatar */}
           {isDead && (
-             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+             <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
                <svg className="w-8 h-8 text-red-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
              </div>
           )}
@@ -118,35 +131,49 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute }) => {
           </div>
           
           {/* Need Bars */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
+          <div className="space-y-1">
+            {/* Health Bar */}
+             <div>
                 <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
-                   <span>Sanity</span>
+                   <span>Health</span>
                 </div>
-                <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full rounded-full ${tribute.stats.sanity < 30 ? 'bg-purple-500' : 'bg-blue-500'}`} 
-                    style={{ width: `${sanityPercent}%` }}
+                    className={`h-full rounded-full ${tribute.stats.health < 30 ? 'bg-red-600 animate-pulse' : 'bg-green-600'}`} 
+                    style={{ width: `${healthPercent}%` }}
                   ></div>
                 </div>
             </div>
-             <div>
-                <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
-                   <span>Hunger</span>
+
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
+                    <span>Sanity</span>
+                    </div>
+                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+                    <div 
+                        className={`h-full rounded-full ${tribute.stats.sanity < 30 ? 'bg-purple-500' : 'bg-blue-500'}`} 
+                        style={{ width: `${sanityPercent}%` }}
+                    ></div>
+                    </div>
                 </div>
-                <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full rounded-full ${tribute.stats.hunger > 80 ? 'bg-red-500' : 'bg-amber-500'}`} 
-                    style={{ width: `${hungerPercent}%` }}
-                  ></div>
+                <div>
+                    <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
+                    <span>Hunger</span>
+                    </div>
+                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+                    <div 
+                        className={`h-full rounded-full ${tribute.stats.hunger > 80 ? 'bg-red-500' : 'bg-amber-500'}`} 
+                        style={{ width: `${hungerPercent}%` }}
+                    ></div>
+                    </div>
                 </div>
             </div>
           </div>
 
-          {/* Inventory - Visualizing the Memory System */}
+          {/* Inventory */}
           {tribute.inventory.length > 0 && (
             <div className="mt-2 pt-2 border-t border-gray-800">
-                <p className="text-[9px] text-gray-500 uppercase mb-1">Inventory</p>
                 <div className="flex flex-wrap gap-1">
                     {tribute.inventory.map((item, idx) => (
                         <span key={idx} className="px-1.5 py-0.5 rounded-sm text-[9px] bg-indigo-900/30 text-indigo-300 border border-indigo-800/50">
