@@ -147,6 +147,15 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
       if (mainActor.stats.health < 60 || mainActor.stats.sanity < 50) score *= 5.0;
   }
 
+  // NEW: Suicide Logic
+  if (actors.length === 1 && event.tags?.includes('Suicide')) {
+      if (mainActor.stats.sanity < 10 && mainActor.stats.health < 30) {
+          score *= 100.0; // Almost guaranteed if this event is pulled
+      } else {
+          score = 0; // Healthy/Sane people do not do this
+      }
+  }
+
   // 3. Relationship Logic (Combat)
   if (hasVictim && victim) {
     const relation = getRelationship(mainActor, victim);
@@ -225,6 +234,7 @@ export const simulatePhase = (
               if (t.stats.health <= 0) {
                   t.status = TributeStatus.Dead;
                   t.stats.health = 0;
+                  t.deathCause = "Arena Event";
                   fallen.push(t);
                   deathsThisPhase++;
                   logs.push({
@@ -234,11 +244,15 @@ export const simulatePhase = (
                       deathNames: [t.name]
                   });
               }
+              // Psychological damage
+              if (arenaEvent.type === 'Psychological') {
+                  t.stats.sanity -= 20;
+              }
           }
       });
   }
   
-  // --- Step 1: Stat Degradation ---
+  // --- Step 1: Stat Degradation & Passive Bonding ---
   if (phase !== 'Bloodbath') {
     tributesMap.forEach(t => {
       if (t.status === TributeStatus.Dead) return;
@@ -255,9 +269,18 @@ export const simulatePhase = (
           t.stats.health += 5;
       }
 
-      Object.keys(t.relationships).forEach(relId => {
-          if (t.relationships[relId] > 10) {
-              t.relationships[relId] -= 2; 
+      // Passive Relationship Logic
+      tributesMap.forEach(other => {
+          if (t.id === other.id || other.status === TributeStatus.Dead) return;
+          
+          // Decay
+          if (t.relationships[other.id] > 10) {
+              t.relationships[other.id] -= 2; 
+          }
+          
+          // "Shared Trauma" - If same district or just surviving together long term
+          if (t.district === other.district || Math.random() < 0.05) {
+               modifyRelationship(t, other, 3);
           }
       });
       
@@ -273,7 +296,7 @@ export const simulatePhase = (
   const aliveCount = Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).length;
 
   if (daysSinceLastDeath > 2) aggressionMultiplier = 3.0; 
-  if (aliveCount < 5) aggressionMultiplier = 2.0; 
+  if (aliveCount <= 4) aggressionMultiplier = 4.0; // Endgame panic
   if (phase === 'Bloodbath') aggressionMultiplier = 1.5;
 
   // Event Pool Selection
@@ -282,44 +305,68 @@ export const simulatePhase = (
   else if (phase === 'Night') basePool = [...nightEvents, ...fatalEvents];
   else basePool = [...generalEvents, ...fatalEvents];
 
-  // --- Step 3: Action Loop ---
-  let aliveIds = shuffle(Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).map(t => t.id));
-  const processedIds = new Set<string>();
-
-  let i = 0;
-  while (i < aliveIds.length) {
-    const actorId = aliveIds[i];
-    if (processedIds.has(actorId)) { i++; continue; }
-    if (tributesMap.get(actorId)?.status === TributeStatus.Dead) { i++; continue; } // Might have died in Arena event
-
+  // --- Step 3: Action Loop (Improved Matchmaking) ---
+  let availableIds = shuffle(Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).map(t => t.id));
+  
+  while (availableIds.length > 0) {
+    const actorId = availableIds.pop(); // Take last one
+    if (!actorId) break;
+    
     const actor = tributesMap.get(actorId)!;
+    if (actor.status === TributeStatus.Dead) continue;
 
-    // --- Grouping Logic ---
     let groupIds: string[] = [actorId];
     
     // Determine desire
     let desire: 'Kill' | 'Social' | 'Solo' = 'Solo';
     if (actor.stats.sanity < 20 || actor.stats.hunger > 90) desire = 'Solo'; 
     else if (Math.random() < 0.3 || actor.traits.includes('Friendly') || actor.traits.includes('Charming')) desire = 'Social';
-    else if (Math.random() < 0.1 || actor.traits.includes('Ruthless')) desire = 'Kill';
+    else if (Math.random() < 0.1 || actor.traits.includes('Ruthless') || aliveCount <= 4) desire = 'Kill';
 
-    if (desire !== 'Solo') {
-        for (let j = i + 1; j < aliveIds.length; j++) {
-            const targetId = aliveIds[j];
-            if (processedIds.has(targetId)) continue;
-            const target = tributesMap.get(targetId)!;
-            if (target.status === TributeStatus.Dead) continue;
-            
-            const relation = getRelationship(actor, target);
-            if (desire === 'Social' && relation >= 0) {
-                groupIds.push(targetId);
-                if (groupIds.length >= 2) break; 
-            } else if (desire === 'Kill' && relation <= 0) {
-                groupIds.push(targetId);
-                break; 
-            }
+    // Matchmaking Phase
+    if (desire !== 'Solo' && availableIds.length > 0) {
+        // Scan ALL available tributes for the best match
+        let bestTargetId: string | null = null;
+        let bestScore = -999;
+
+        for (const targetId of availableIds) {
+             const target = tributesMap.get(targetId)!;
+             const relation = getRelationship(actor, target);
+             
+             let score = 0;
+             if (desire === 'Social') {
+                 score = relation; // Higher is better
+             } else {
+                 score = -relation; // Lower relation (higher negative) is better target
+             }
+             
+             // Random variance
+             score += Math.random() * 50; 
+             
+             if (score > bestScore) {
+                 bestScore = score;
+                 bestTargetId = targetId;
+             }
+        }
+
+        // Filter logic: Only group if score meets threshold
+        if (bestTargetId) {
+             const relation = getRelationship(actor, tributesMap.get(bestTargetId)!);
+             if (desire === 'Social' && relation > -20) {
+                  groupIds.push(bestTargetId);
+             } else if (desire === 'Kill' && (relation < 20 || aliveCount <= 4)) {
+                  groupIds.push(bestTargetId);
+             }
         }
     }
+
+    // Remove chosen partners from available pool
+    groupIds.forEach(id => {
+        if (id !== actorId) {
+            const idx = availableIds.indexOf(id);
+            if (idx > -1) availableIds.splice(idx, 1);
+        }
+    });
 
     const finalGroupSize = groupIds.length;
     const groupActors = groupIds.map(id => tributesMap.get(id)!);
@@ -347,21 +394,16 @@ export const simulatePhase = (
         }
     }
 
-    // FIX: Group Fallback Logic
     if (!chosenEvent) {
         if (finalGroupSize === 1) {
             chosenEvent = { text: "(P1) wanders around aimlessly.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [] };
         } else {
-            // New generic fallback for groups to prevent splitting loop bug
             chosenEvent = { text: "(P1) and the group huddle together quietly.", playerCount: finalGroupSize, fatalities: false, killerIndices: [], victimIndices: [] };
         }
     }
     
-    groupIds.forEach(id => processedIds.add(id));
-
     // Execute Event
     const actors = groupIds.map(id => tributesMap.get(id)!);
-    const parsedText = parseEventText(chosenEvent.text, actors, chosenEvent.tags);
     const deathNames: string[] = [];
 
     // --- Apply Consequences ---
@@ -370,8 +412,8 @@ export const simulatePhase = (
     if (chosenEvent.itemGain) {
         actors[0].inventory.push(...chosenEvent.itemGain);
     }
+    // Fixed Consumable Logic
     if (chosenEvent.itemRequired && chosenEvent.consumesItem) {
-        // Logic update: Check if consumesItem is array or boolean
         const itemsToRemove = Array.isArray(chosenEvent.consumesItem) 
             ? chosenEvent.consumesItem 
             : chosenEvent.itemRequired;
@@ -397,40 +439,46 @@ export const simulatePhase = (
     // 3. Health Damage (Fail / Accident)
     if (chosenEvent.healthDamage) {
         actors[0].stats.health -= chosenEvent.healthDamage;
-        // Check for death by injury
         if (actors[0].stats.health <= 0 && !chosenEvent.fatalities) {
              actors[0].status = TributeStatus.Dead;
+             actors[0].deathCause = "Succumbed to injuries";
              fallen.push({...actors[0]});
              deathNames.push(actors[0].name);
              deathsThisPhase++;
-             // Append death message to text
              chosenEvent.text += ` (P1) succumbs to their injuries.`;
         }
     }
 
-    // 4. Fatalities & Relationships
+    // 4. Fatalities, Looting & Relationships
     if (chosenEvent.fatalities) {
         deathsThisPhase += chosenEvent.victimIndices.length;
+        const killer = chosenEvent.killerIndices.length > 0 ? actors[chosenEvent.killerIndices[0]] : null;
         
         chosenEvent.victimIndices.forEach(vIdx => {
             if (vIdx < actors.length) {
                 const v = actors[vIdx];
                 v.status = TributeStatus.Dead;
                 v.stats.health = 0;
+                v.deathCause = chosenEvent?.text.replace(/\(P\d+\)/g, 'Someone'); // Rough approximation, cleaned up by Log
+                if (killer) v.killerId = killer.id;
+                
+                // LOOTING LOGIC
+                if (killer && v.inventory.length > 0) {
+                    killer.inventory.push(...v.inventory);
+                    v.inventory = []; 
+                }
+                
                 fallen.push({ ...v });
                 deathNames.push(v.name);
             }
         });
 
-        chosenEvent.killerIndices.forEach(kIdx => {
-            if (kIdx < actors.length) {
-                const k = actors[kIdx];
-                k.killCount++;
-                if (!k.traits.includes('Ruthless')) {
-                    k.stats.sanity -= 20;
-                }
-            }
-        });
+        if (killer) {
+             killer.killCount += chosenEvent.victimIndices.length;
+             if (!killer.traits.includes('Ruthless')) {
+                 killer.stats.sanity -= 20;
+             }
+        }
     } else {
         if (actors.length === 2) {
             const p1 = actors[0];
@@ -440,10 +488,11 @@ export const simulatePhase = (
                 modifyRelationship(p2, p1, 15);
             } else if (chosenEvent.tags?.includes('Attack') || chosenEvent.tags?.includes('Theft')) {
                 modifyRelationship(p2, p1, -40);
-                // Attacked person loses health
                 p2.stats.health -= 10;
                 if (p2.stats.health <= 0) {
                      p2.status = TributeStatus.Dead;
+                     p2.deathCause = `Killed by ${p1.name}`;
+                     p2.killerId = p1.id;
                      fallen.push({...p2});
                      deathNames.push(p2.name);
                      deathsThisPhase++;
@@ -452,7 +501,6 @@ export const simulatePhase = (
         }
     }
 
-    // Final parse (to include any appended death messages)
     const finalLogText = parseEventText(chosenEvent.text, actors, chosenEvent.tags);
 
     logs.push({
@@ -461,8 +509,6 @@ export const simulatePhase = (
       type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : EventType.Day),
       deathNames: deathNames.length > 0 ? deathNames : undefined
     });
-
-    i++;
   }
 
   return {

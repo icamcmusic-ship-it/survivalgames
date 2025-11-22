@@ -6,6 +6,7 @@ interface TributeCardProps {
   tribute: Tribute;
   onSponsor?: (id: string) => void;
   canSponsor?: boolean;
+  sponsorMode: boolean;
 }
 
 const DISTRICT_COLORS: Record<number, string> = {
@@ -39,7 +40,7 @@ const getMoodBadge = (tribute: Tribute) => {
     return null;
 };
 
-export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, canSponsor }) => {
+export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, canSponsor, sponsorMode }) => {
   const isDead = tribute.status === TributeStatus.Dead;
   const districtColor = DISTRICT_COLORS[tribute.district] || 'border-gray-500';
 
@@ -53,7 +54,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
       relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out
       ${isDead 
         ? 'bg-black/80 border-gray-800 opacity-60 grayscale' 
-        : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1'
+        : (sponsorMode ? 'bg-panel border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1')
       }
     `}>
       {/* Status Indicator Dot (Corner) */}
@@ -66,9 +67,18 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
       {!isDead && canSponsor && (
           <button 
             onClick={(e) => { e.stopPropagation(); onSponsor?.(tribute.id); }}
-            className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-[1px]"
+            className={`
+                absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[1px] transition-all duration-300
+                ${sponsorMode 
+                    ? 'opacity-100 bg-blue-900/20' 
+                    : 'bg-black/60 opacity-0 group-hover:opacity-100'
+                }
+            `}
           >
-             <div className="bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform flex items-center gap-2">
+             <div className={`
+                 bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transition-transform
+                 ${sponsorMode ? 'scale-100 hover:scale-110' : 'transform scale-90 group-hover:scale-100'}
+             `}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
                 SPONSOR
              </div>
@@ -112,7 +122,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
               </span>
             )}
           </div>
-          <h3 className={`text-sm font-medium truncate ${isDead ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
+          <h3 className={`text-sm font-medium leading-tight break-words ${isDead ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
             {tribute.name}
           </h3>
         </div>

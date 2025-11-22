@@ -11,6 +11,14 @@ interface GameLogProps {
 
 type FilterType = 'ALL' | 'DEATHS' | 'MAJOR';
 
+// Helper to scramble text for hallucination effect
+const scrambleText = (text: string) => {
+    const chars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    return text.split('').map(char => 
+        Math.random() < 0.1 ? chars[Math.floor(Math.random() * chars.length)] : char
+    ).join('');
+};
+
 export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewIndex, setViewIndex] = useState<number>(-1);
@@ -64,6 +72,23 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
 
   return (
     <div className="flex flex-col h-full bg-panel rounded-2xl border border-gray-800 shadow-2xl overflow-hidden">
+      <style>
+        {`
+          @keyframes glitch-anim {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 2px) }
+            40% { transform: translate(-2px, -2px) }
+            60% { transform: translate(2px, 2px) }
+            80% { transform: translate(2px, -2px) }
+            100% { transform: translate(0) }
+          }
+          .glitch-text {
+            animation: glitch-anim 0.3s infinite;
+            color: #d8b4fe;
+            text-shadow: 1px 0 red, -1px 0 blue;
+          }
+        `}
+      </style>
       {/* Log Header */}
       <div className={`p-4 border-b border-gray-800 flex items-center justify-between ${isNightPhase ? 'bg-indigo-950/30' : 'bg-gray-900/50'}`}>
         <div className="flex items-center gap-3">
@@ -118,6 +143,12 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
         {filteredLogs.map((log, idx) => {
           const isDeath = !!log.deathNames;
           const isArena = log.type === 'Arena';
+          // Sanity Check: If log text contains a "Sanity" tag or user is hallucinating
+          // Note: We don't have direct access to sanity state of ALL actors here easily without parsing, 
+          // but we can detect insanity events by keywords or tags if we passed them. 
+          // For now, we'll look for the Insanity specific keywords in the rendered HTML from logic.
+          const isInsanity = log.text.includes('Insanity');
+
           return (
             <div 
               key={log.id} 
@@ -138,7 +169,10 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
                    {(idx + 1).toString().padStart(3, '0')}
                 </span>
                 <div className="flex-1">
-                  <p dangerouslySetInnerHTML={{ __html: log.text }} />
+                  <p 
+                    dangerouslySetInnerHTML={{ __html: log.text }} 
+                    className={isInsanity ? 'glitch-text' : ''}
+                  />
                   
                   {isDeath && (
                     <div className="mt-2 flex flex-wrap gap-2">

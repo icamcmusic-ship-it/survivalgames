@@ -1,26 +1,35 @@
+
 import React from 'react';
-import { Tribute } from '../types';
+import { Tribute, RoundHistory } from '../types';
 
 interface StatsModalProps {
   winner: Tribute;
   duration: number;
   tributes: Tribute[]; // All tributes to calculate rankings
+  history: RoundHistory[];
   onRestart: () => void;
 }
 
-export const StatsModal: React.FC<StatsModalProps> = ({ winner, duration, tributes, onRestart }) => {
+export const StatsModal: React.FC<StatsModalProps> = ({ winner, duration, tributes, history, onRestart }) => {
   const sortedByKills = [...tributes].sort((a, b) => b.killCount - a.killCount);
   const mostKills = sortedByKills[0];
 
+  // Extract Winner's Story
+  const storyLogs = history.flatMap(h => 
+      h.logs.filter(l => l.text.includes(winner.name))
+            .map(l => ({ day: h.day, phase: h.phase, text: l.text }))
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 backdrop-blur-sm">
-      <div className="relative bg-panel border border-gold/30 rounded-2xl max-w-2xl w-full p-8 shadow-[0_0_50px_rgba(251,191,36,0.1)] animate-fade-in overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 backdrop-blur-sm overflow-y-auto">
+      <div className="relative bg-panel border border-gold/30 rounded-2xl max-w-4xl w-full p-8 shadow-[0_0_50px_rgba(251,191,36,0.1)] animate-fade-in flex flex-col md:flex-row gap-8">
         
         {/* Background Decoration */}
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-gold to-transparent"></div>
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-gold/5 rounded-full blur-3xl"></div>
         
-        <div className="text-center relative z-10">
+        {/* Left Column: Winner Stats */}
+        <div className="flex-1 text-center relative z-10 flex flex-col justify-center">
           <h2 className="text-gold font-mono text-sm tracking-[0.5em] uppercase mb-2">The Games Are Over</h2>
           <h1 className="font-display text-5xl md:text-6xl font-bold text-white mb-8 drop-shadow-lg">
             Victor Crowned
@@ -66,6 +75,23 @@ export const StatsModal: React.FC<StatsModalProps> = ({ winner, duration, tribut
         >
           Initialize Next Simulation
         </button>
+        </div>
+
+        {/* Right Column: Journey Timeline */}
+        <div className="flex-1 border-l border-gray-800 pl-8 relative overflow-hidden">
+             <h3 className="text-gray-400 font-mono text-xs uppercase tracking-widest mb-4 sticky top-0 bg-panel z-10 py-2">The Path to Victory</h3>
+             <div className="space-y-4 h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                 {storyLogs.length === 0 && <p className="text-gray-600 text-sm italic">They hid in the shadows and waited...</p>}
+                 {storyLogs.map((log, idx) => (
+                     <div key={idx} className="relative pl-4 border-l-2 border-gray-800 text-sm">
+                         <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-gray-600"></div>
+                         <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">
+                             Day {log.day} - {log.phase}
+                         </div>
+                         <div className="text-gray-300" dangerouslySetInnerHTML={{ __html: log.text }} />
+                     </div>
+                 ))}
+             </div>
         </div>
       </div>
     </div>

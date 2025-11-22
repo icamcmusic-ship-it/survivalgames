@@ -114,6 +114,7 @@ export const fatalEvents: GameEvent[] = [
   { text: "(P1) pushes (P2) off a cliff during a struggle.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill', 'Environment'] },
   { text: "(P1) strangles (P2) with a rope.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
   { text: "(P1) bleeds out from untreated injuries.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Death'], condition: (a) => isInjured(a[0]) },
+  { text: "(P1) can no longer bear the nightmare and ends their own life.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.1, tags: ['Suicide'] },
 
   // Weapon Specific - FIXED Infinite Ammo
   { text: "(P1) shoots an arrow into (P2)'s head.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Bow', 'Arrows'], consumesItem: ['Arrows'] },
@@ -153,4 +154,6 @@ export const arenaEvents = [
     { text: "A feast is announced at the Cornucopia!", heal: 50, feed: 100, type: 'Feast' },
     { text: "Wolf mutts are unleashed on the arena.", damage: 25, type: 'Beast' },
     { text: "The temperature drops below freezing.", damage: 10, type: 'Weather' },
+    { text: "A forest fire forces tributes into a smaller area.", damage: 10, type: 'Weather' },
+    { text: "A loud, maddening buzzing noise fills the arena.", damage: 0, type: 'Psychological' }, // Mental damage dealt in logic
 ];

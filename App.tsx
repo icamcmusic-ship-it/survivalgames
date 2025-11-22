@@ -21,6 +21,8 @@ const App: React.FC = () => {
     sponsorPoints: 100 // Initial points
   });
 
+  const [sponsorMode, setSponsorMode] = useState(false);
+
   // Initialize game
   useEffect(() => {
     setGameState(prev => ({
@@ -138,6 +140,7 @@ const App: React.FC = () => {
         daysSinceLastDeath: 0,
         sponsorPoints: 100
     });
+    setSponsorMode(false);
   };
 
   const handleSponsor = (tributeId: string) => {
@@ -170,15 +173,9 @@ const App: React.FC = () => {
               ...prev,
               tributes: updatedTributes,
               sponsorPoints: prev.sponsorPoints - 25,
-              logs: [newLog, ...prev.logs] // Prepend or append? Append usually implies chronological, but react log view is top-down? existing is append.
-              // Actually existing logic pushes to end.
+              logs: [...prev.logs, newLog] // Fixed order: Append to end
           };
       });
-      // Re-appending the log in the correct order requires modifying the previous state update slightly or just forcing a simple append:
-      // Since I'm inside the callback, I'll just do it cleanly above. Wait, `logs` in state is an array.
-      // I need to append it to the END of the logs to appear chronologically.
-      // However, `GameLog` displays in order.
-      // Small fix: Let's just rely on the state update.
   };
 
   // --- Helpers ---
@@ -197,7 +194,7 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>Sim v2.2 (Deep Sim)</span>
+                        <span>Sim v2.3 (Deep Sim)</span>
                         <span className="text-gray-700">•</span>
                         <span>{gameState.phase}</span>
                     </div>
@@ -206,13 +203,27 @@ const App: React.FC = () => {
 
             {/* Stats Counters */}
             <div className="flex items-center gap-8">
-                 <div className="hidden md:block text-center group relative cursor-help">
-                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Funds</div>
-                    <div className="font-display font-bold text-xl text-blue-400">{gameState.sponsorPoints}</div>
-                    <div className="absolute top-full mt-2 right-0 bg-black text-xs text-gray-400 p-2 rounded w-40 border border-gray-800 hidden group-hover:block z-50">
-                        Click a tribute to send a gift (Cost: 25). Funds regenerate daily.
+                 <div className="hidden md:flex items-center gap-4">
+                    <div className="text-center group relative cursor-help">
+                        <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Funds</div>
+                        <div className="font-display font-bold text-xl text-blue-400">{gameState.sponsorPoints}</div>
                     </div>
+                    {/* Sponsor Mode Toggle */}
+                    <button 
+                        onClick={() => setSponsorMode(!sponsorMode)}
+                        className={`
+                            flex items-center gap-2 px-3 py-1 rounded border text-[10px] font-mono uppercase font-bold transition-all
+                            ${sponsorMode 
+                                ? 'bg-blue-900/50 border-blue-500 text-blue-200 shadow-[0_0_10px_rgba(59,130,246,0.3)]' 
+                                : 'bg-gray-900/50 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
+                            }
+                        `}
+                    >
+                        <span className={`w-2 h-2 rounded-full ${sponsorMode ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`}></span>
+                        {sponsorMode ? 'Sponsor Mode: ON' : 'Sponsor Mode: OFF'}
+                    </button>
                  </div>
+
                  <div className="w-px h-8 bg-gray-800 hidden md:block"></div>
                  <div className="text-center">
                     <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Day</div>
@@ -257,6 +268,7 @@ const App: React.FC = () => {
                     winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.tributes[0]} 
                     duration={gameState.day} 
                     tributes={gameState.tributes}
+                    history={gameState.history}
                     onRestart={handleRestart}
                 />
             )}
@@ -291,6 +303,7 @@ const App: React.FC = () => {
                                     tribute={t} 
                                     onSponsor={handleSponsor}
                                     canSponsor={gameState.sponsorPoints >= 25 && t.status === TributeStatus.Alive}
+                                    sponsorMode={sponsorMode}
                                 />
                                 ))}
                             </div>

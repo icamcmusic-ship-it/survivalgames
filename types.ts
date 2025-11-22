@@ -24,6 +24,10 @@ export interface Tribute {
   traits: Trait[];
   relationships: Record<string, number>; // id -> -100 (Hate) to 100 (Love)
   notes: string[]; // Memories/Public Status (e.g., "Injured", "Grieving")
+  
+  // Death Details
+  deathCause?: string;
+  killerId?: string;
 }
 
 export enum EventType {
