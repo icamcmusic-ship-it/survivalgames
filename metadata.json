@@ -1,0 +1,5 @@
+{
+  "name": "Battle Royale Simulator",
+  "description": "A text-based 24-tribute survival simulator with events, alliances, and statistics.",
+  "requestFramePermissions": []
+}
