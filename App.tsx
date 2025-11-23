@@ -18,7 +18,10 @@ const App: React.FC = () => {
     totalEvents: 0,
     gameRunning: false,
     daysSinceLastDeath: 0,
-    sponsorPoints: 100 // Initial points
+    sponsorPoints: 100, // Initial points
+    minDays: 5,
+    maxDays: 10,
+    isAutoPlaying: false
   });
 
   const [sponsorMode, setSponsorMode] = useState(false);
@@ -43,12 +46,12 @@ const App: React.FC = () => {
     const currentAlive = gameState.tributes.filter(t => t.status === TributeStatus.Alive);
 
     if (currentAlive.length === 1) {
-      setGameState(prev => ({ ...prev, phase: 'Winner' }));
+      setGameState(prev => ({ ...prev, phase: 'Winner', isAutoPlaying: false }));
       return;
     }
     
     if (currentAlive.length === 0) {
-        setGameState(prev => ({ ...prev, phase: 'Winner' }));
+        setGameState(prev => ({ ...prev, phase: 'Winner', isAutoPlaying: false }));
         return;
     }
 
@@ -101,7 +104,14 @@ const App: React.FC = () => {
        return;
     }
 
-    const result = simulatePhase(gameState.tributes, nextPhase as 'Bloodbath' | 'Day' | 'Night', gameState.daysSinceLastDeath);
+    const result = simulatePhase(
+        gameState.tributes, 
+        nextPhase as 'Bloodbath' | 'Day' | 'Night', 
+        gameState.daysSinceLastDeath,
+        nextDay,
+        gameState.minDays,
+        gameState.maxDays
+    );
 
     let newHistory = [...gameState.history];
     if (gameState.phase === 'Reaping') {
@@ -123,6 +133,17 @@ const App: React.FC = () => {
 
   }, [gameState]);
 
+  // Auto-Play Effect
+  useEffect(() => {
+      if (gameState.isAutoPlaying && gameState.phase !== 'Winner') {
+          const interval = setInterval(() => {
+              advancePhase();
+          }, 2000);
+          return () => clearInterval(interval);
+      }
+  }, [gameState.isAutoPlaying, gameState.phase, advancePhase]);
+
+
   const handleRestart = () => {
     setGameState({
         tributes: generateTributes(),
@@ -138,7 +159,10 @@ const App: React.FC = () => {
         totalEvents: 0,
         gameRunning: false,
         daysSinceLastDeath: 0,
-        sponsorPoints: 100
+        sponsorPoints: 100,
+        minDays: 5,
+        maxDays: 10,
+        isAutoPlaying: false
     });
     setSponsorMode(false);
   };
@@ -173,7 +197,7 @@ const App: React.FC = () => {
               ...prev,
               tributes: updatedTributes,
               sponsorPoints: prev.sponsorPoints - 25,
-              logs: [...prev.logs, newLog] // Fixed order: Append to end
+              logs: [...prev.logs, newLog] 
           };
       });
   };
@@ -194,7 +218,7 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>Sim v2.3 (Deep Sim)</span>
+                        <span>Sim v2.4</span>
                         <span className="text-gray-700">•</span>
                         <span>{gameState.phase}</span>
                     </div>
@@ -241,21 +265,40 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* Proceed Button */}
-            <button 
-                onClick={advancePhase}
-                disabled={gameState.phase === 'Winner'}
-                className={`
-                    hidden md:flex items-center gap-2 px-6 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all
-                    ${gameState.phase === 'Winner' 
-                        ? 'bg-gray-800 text-gray-600 cursor-not-allowed' 
-                        : 'bg-white text-black hover:bg-gold hover:shadow-[0_0_15px_rgba(251,191,36,0.5)] active:scale-95'
-                    }
-                `}
-            >
-               <span>{gameState.phase === 'Reaping' ? 'Start Games' : 'Proceed'}</span>
-               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-            </button>
+            {/* Controls */}
+            <div className="flex items-center gap-3">
+                {/* Auto Play */}
+                {gameState.phase !== 'Winner' && gameState.phase !== 'Reaping' && (
+                     <button 
+                        onClick={() => setGameState(prev => ({ ...prev, isAutoPlaying: !prev.isAutoPlaying }))}
+                        className={`
+                             hidden md:flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all border
+                             ${gameState.isAutoPlaying 
+                                 ? 'bg-red-900/50 border-red-500 text-red-200' 
+                                 : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'
+                             }
+                        `}
+                     >
+                         {gameState.isAutoPlaying ? '■ Stop' : '▶ Auto'}
+                     </button>
+                )}
+
+                {/* Proceed Button */}
+                <button 
+                    onClick={advancePhase}
+                    disabled={gameState.phase === 'Winner'}
+                    className={`
+                        hidden md:flex items-center gap-2 px-6 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all
+                        ${gameState.phase === 'Winner' 
+                            ? 'bg-gray-800 text-gray-600 cursor-not-allowed' 
+                            : 'bg-white text-black hover:bg-gold hover:shadow-[0_0_15px_rgba(251,191,36,0.5)] active:scale-95'
+                        }
+                    `}
+                >
+                <span>{gameState.phase === 'Reaping' ? 'Start Games' : 'Proceed'}</span>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                </button>
+            </div>
         </header>
 
         {/* Main Content Area */}

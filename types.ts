@@ -86,4 +86,9 @@ export interface GameState {
   gameRunning: boolean;
   daysSinceLastDeath: number; // For "The Director" pacing
   sponsorPoints: number; // New User Interaction
+  
+  // Pacing Settings
+  minDays: number;
+  maxDays: number;
+  isAutoPlaying: boolean;
 }

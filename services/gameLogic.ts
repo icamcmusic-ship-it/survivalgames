@@ -91,9 +91,20 @@ const parseEventText = (text: string, actors: Tribute[], eventTags: string[] = [
   return result;
 };
 
+// Plain text resolver for death causes
+export const resolveEventTextPlain = (text: string, actors: Tribute[]): string => {
+  let result = text;
+  actors.forEach((actor, index) => {
+    const placeholder = `(P${index + 1})`;
+    result = result.split(placeholder).join(actor.name);
+  });
+  return result;
+};
+
 // --- Relationship Logic ---
 const getRelationship = (from: Tribute, to: Tribute): number => {
-  if (from.district === to.district) return from.relationships[to.id] ?? 50; // District partners start with trust
+  // District Advantage
+  if (from.district === to.district) return from.relationships[to.id] ?? 75; // Higher base trust
   return from.relationships[to.id] ?? 0;
 };
 
@@ -103,7 +114,16 @@ const modifyRelationship = (from: Tribute, to: Tribute, amount: number) => {
 };
 
 // --- Event Scoring System (The Brain) ---
-const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string, aggressionMultiplier: number, aliveCount: number): number => {
+const calculateEventScore = (
+    event: GameEvent, 
+    actors: Tribute[], 
+    phase: string, 
+    aggressionMultiplier: number, 
+    aliveCount: number,
+    day: number,
+    minDays: number,
+    maxDays: number
+): number => {
   const mainActor = actors[0];
   const hasVictim = actors.length > 1 && event.victimIndices.length > 0;
   const victim = hasVictim ? actors[event.victimIndices[0]] : null;
@@ -124,6 +144,20 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
   if (event.condition && !event.condition(actors)) return 0;
 
   let score = event.weight || 1.0;
+
+  // --- PACING LOGIC ---
+  // Early Game protection
+  if (day < minDays && phase !== 'Bloodbath') {
+      if (event.fatalities || event.tags?.includes('Kill')) {
+          score *= 0.1;
+      }
+  }
+  // Sudden Death
+  if (day > maxDays) {
+       if (event.fatalities) {
+           score *= 10.0;
+       }
+  }
 
   // 1. Trait Multipliers
   if (mainActor.traits.includes('Ruthless') && event.tags?.includes('Kill')) score *= 2.5;
@@ -164,7 +198,7 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
        
        // BUG FIX: Immortal Friends Logic
        // If few people are left, friendships don't matter as much. Betrayal is necessary.
-       if (aliveCount <= 4) {
+       if (aliveCount <= 4 || day > maxDays) {
             score *= 5.0; // Panic mode
             if (relation > 50) score *= 5.0; // Dramatic betrayal bonus
        } else {
@@ -200,7 +234,10 @@ interface PhaseResult {
 export const simulatePhase = (
   currentTributes: Tribute[],
   phase: 'Bloodbath' | 'Day' | 'Night',
-  daysSinceLastDeath: number
+  daysSinceLastDeath: number,
+  day: number,
+  minDays: number,
+  maxDays: number
 ): PhaseResult => {
   // Deep copy tributes
   const tributesMap = new Map(currentTributes.map(t => [t.id, {
@@ -215,8 +252,31 @@ export const simulatePhase = (
   const fallen: Tribute[] = [];
   let deathsThisPhase = 0;
 
+  // --- FEAST LOGIC ---
+  let isFeast = false;
+  if (phase === 'Day' && day === Math.floor(minDays / 2) && day > 1) {
+      isFeast = true;
+      logs.push({
+          id: `feast-${Date.now()}`,
+          text: `<span class="text-orange-500 font-bold text-lg">THE FEAST BEGINS!</span> A cornucopia of supplies has appeared in the center.`,
+          type: EventType.Feast
+      });
+      
+      // Refill Everyone
+      tributesMap.forEach(t => {
+          if (t.status === TributeStatus.Alive) {
+              t.stats.hunger = 0;
+              t.stats.health = Math.min(100, t.stats.health + 20);
+          }
+      });
+  }
+
   // --- Global Arena Events (Chance) ---
-  if (phase === 'Day' && Math.random() < 0.15) {
+  // Increased chance in late game
+  let arenaChance = 0.15;
+  if (day > maxDays) arenaChance = 0.5;
+
+  if (phase === 'Day' && Math.random() < arenaChance && !isFeast) {
       const arenaEvent = arenaEvents[Math.floor(Math.random() * arenaEvents.length)];
       logs.push({
           id: `arena-${Date.now()}`,
@@ -278,8 +338,10 @@ export const simulatePhase = (
               t.relationships[other.id] -= 2; 
           }
           
-          // "Shared Trauma" - If same district or just surviving together long term
-          if (t.district === other.district || Math.random() < 0.05) {
+          // "Shared Trauma" & District Bond
+          if (t.district === other.district) {
+               modifyRelationship(t, other, 5); // Higher bond for district partners
+          } else if (Math.random() < 0.05) {
                modifyRelationship(t, other, 3);
           }
       });
@@ -298,6 +360,7 @@ export const simulatePhase = (
   if (daysSinceLastDeath > 2) aggressionMultiplier = 3.0; 
   if (aliveCount <= 4) aggressionMultiplier = 4.0; // Endgame panic
   if (phase === 'Bloodbath') aggressionMultiplier = 1.5;
+  if (isFeast) aggressionMultiplier = 2.0; // Feast violence
 
   // Event Pool Selection
   let basePool: GameEvent[] = [];
@@ -372,11 +435,31 @@ export const simulatePhase = (
     const groupActors = groupIds.map(id => tributesMap.get(id)!);
 
     // --- Event Selection ---
-    const possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
+    // Filter basePool based on DESIRE
+    let possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
+
+    if (desire === 'Kill') {
+        // If they want to kill, force events that are fatal or attacks
+        const killEvents = possibleEvents.filter(e => e.fatalities || e.tags?.includes('Attack'));
+        if (killEvents.length > 0) {
+            possibleEvents = killEvents;
+        }
+    } else if (desire === 'Social') {
+        // If social, avoid murder unless forced
+        const socialEvents = possibleEvents.filter(e => !e.fatalities && !e.tags?.includes('Attack'));
+        if (socialEvents.length > 0) {
+            possibleEvents = socialEvents;
+        }
+    }
     
+    // Safety Net: If too many deaths this day/phase and early game, prevent more deaths
+    if (day < minDays && deathsThisPhase > 4) {
+        possibleEvents = possibleEvents.filter(e => !e.fatalities);
+    }
+
     let totalWeight = 0;
     const weightedEvents = possibleEvents.map(event => {
-        const w = calculateEventScore(event, groupActors, phase, aggressionMultiplier, aliveCount);
+        const w = calculateEventScore(event, groupActors, phase, aggressionMultiplier, aliveCount, day, minDays, maxDays);
         totalWeight += w;
         return { event, weight: w };
     }).filter(item => item.weight > 0);
@@ -423,6 +506,12 @@ export const simulatePhase = (
             if (idx > -1) actors[0].inventory.splice(idx, 1);
         });
     }
+    
+    // Corpse Looting Cleanup (Inventory Management)
+    if (actors[0].inventory.length > 4) {
+        // Keep only last 4 items or consolidate
+        actors[0].inventory = actors[0].inventory.slice(-4); 
+    }
 
     // 2. Stats Effect (Benefits)
     if (chosenEvent.tags?.includes('Food')) {
@@ -459,7 +548,8 @@ export const simulatePhase = (
                 const v = actors[vIdx];
                 v.status = TributeStatus.Dead;
                 v.stats.health = 0;
-                v.deathCause = chosenEvent?.text.replace(/\(P\d+\)/g, 'Someone'); // Rough approximation, cleaned up by Log
+                // Fix: Use plain text resolver for death cause
+                v.deathCause = resolveEventTextPlain(chosenEvent!.text, actors);
                 if (killer) v.killerId = killer.id;
                 
                 // LOOTING LOGIC
@@ -506,7 +596,7 @@ export const simulatePhase = (
     logs.push({
       id: Math.random().toString(36).substring(7),
       text: finalLogText,
-      type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : EventType.Day),
+      type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : (isFeast ? EventType.Feast : EventType.Day)),
       deathNames: deathNames.length > 0 ? deathNames : undefined
     });
   }

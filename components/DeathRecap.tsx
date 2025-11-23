@@ -26,7 +26,7 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, onNext }) => {
         {fallen.map((t, idx) => (
           <div 
             key={t.id} 
-            className="flex flex-col items-center group animate-fade-in cursor-pointer"
+            className="flex flex-col items-center group animate-fade-in cursor-pointer relative"
             style={{ animationDelay: `${idx * 100}ms` }}
             onClick={() => setSelectedId(selectedId === t.id ? null : t.id)}
           >
@@ -45,10 +45,14 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, onNext }) => {
             
             {/* Detail Popup */}
             {selectedId === t.id && (
-                <div className="absolute z-50 bg-gray-900 border border-blood text-white text-xs p-2 rounded w-40 text-center shadow-xl transform -translate-y-12">
+                <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-blood text-white text-xs p-2 rounded w-48 text-center shadow-xl">
                     <div className="font-bold text-blood uppercase mb-1">Cause of Death</div>
-                    <div>{t.deathCause || 'Unknown'}</div>
-                    {t.killerId && <div className="mt-1 text-gray-500">Killer: {fallen.find(f => f.id === t.killerId)?.name || 'Unknown'}</div>}
+                    <div className="mb-1">{t.deathCause || 'Unknown'}</div>
+                    {t.killerId && fallen.some(f => f.id === t.killerId) ? (
+                         <div className="mt-1 text-gray-500">Killer: {fallen.find(f => f.id === t.killerId)?.name}</div>
+                    ) : t.killerId ? (
+                         <div className="mt-1 text-gray-500">Killer: Unknown (Alive)</div>
+                    ) : null}
                 </div>
             )}
           </div>
