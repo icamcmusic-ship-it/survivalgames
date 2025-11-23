@@ -1,4 +1,5 @@
 
+
 export enum TributeStatus {
   Alive = 'Alive',
   Dead = 'Dead'
@@ -37,6 +38,7 @@ export interface Tribute {
   
   deathCause?: string;
   killerId?: string;
+  killerName?: string;
 }
 
 export enum EventType {
@@ -45,7 +47,8 @@ export enum EventType {
   Night = 'Night',
   Feast = 'Feast',
   Arena = 'Arena',
-  Training = 'Training'
+  Training = 'Training',
+  Reaping = 'Reaping'
 }
 
 export type WeatherType = 'Clear' | 'Rain' | 'Heatwave' | 'Fog' | 'Storm';
@@ -74,6 +77,8 @@ export interface LogEntry {
   id: string;
   text: string;
   type: EventType;
+  day: number; // Added for Timeline
+  phase: string; // Added for Timeline
   deathNames?: string[];
   relatedTributeIds?: string[]; // Added for filtering
 }

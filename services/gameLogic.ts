@@ -1,4 +1,5 @@
 
+
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
 import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents, feastEvents } from '../data/events';
 
@@ -6,250 +7,103 @@ import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nigh
 const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton', 'Traumatized', 'Broken'];
 
 const ITEM_VALUES: Record<string, number> = {
-    'Explosives': 20,
-    'Gun': 18,
-    'Scythe': 16,
-    'Bow': 15,
-    'Arrows': 15,
-    'Sword': 15,
-    'Spear': 14,
-    'Trident': 14,
-    'Axe': 13,
-    'Knife': 12,
-    'Machete': 12,
-    'Antidote': 16,
-    'First Aid Kit': 10,
-    'Bandages': 10,
-    'Shield': 8,
-    'Molotov Components': 8,
-    'Shovel': 7,
-    'Bread': 6,
-    'Backpack': 5,
-    'Water': 5,
-    'Food': 4,
-    'Rope': 3,
-    'Wire': 3,
-    'Sheet Plastic': 2,
-    'Rock': 1,
-    'Stick': 0
+    'Explosives': 20, 'Gun': 18, 'Ammo': 8, 'Scythe': 16, 'Bow': 15, 'Arrows': 8, 'Sword': 15, 'Spear': 14, 'Trident': 14, 'Axe': 13, 'Knife': 12, 'Machete': 12, 'Antidote': 16, 'First Aid Kit': 10, 'Bandages': 10, 'Shield': 8, 'Molotov Components': 8, 'Shovel': 7, 'Bread': 6, 'Backpack': 5, 'Water': 5, 'Food': 4, 'Rope': 3, 'Wire': 3, 'Sheet Plastic': 2, 'Rock': 1, 'Stick': 0
 };
 
 // --- Initialization ---
-
 const getRandomTraits = (district: number): Trait[] => {
-  // Career Districts
-  if ([1, 2, 4].includes(district)) {
-      return Math.random() < 0.7 ? ['Trained', 'Ruthless'] : ['Trained', 'Charming']; 
-  }
-  // Underdog Districts
-  if ([11, 12].includes(district)) {
-      return Math.random() < 0.6 ? ['Underdog', 'Survivalist'] : ['Underdog', 'Coward'];
-  }
-
+  if ([1, 2, 4].includes(district)) return Math.random() < 0.7 ? ['Trained', 'Ruthless'] : ['Trained', 'Charming']; 
+  if ([11, 12].includes(district)) return Math.random() < 0.6 ? ['Underdog', 'Survivalist'] : ['Underdog', 'Coward'];
   const num = Math.random() > 0.7 ? 2 : 1;
   const shuffled = [...TRAITS].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, num);
 };
 
-// Monte Carlo Simulation for Odds - Exported for re-calc
 export const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], simulations = 600): string => {
     let wins = 0;
-    
     for (let i = 0; i < simulations; i++) {
-        // Create simplified roster with Randomized Power (Form)
         let roster = allTributes.map(t => {
-            if (t.status === TributeStatus.Dead) {
-                return { id: t.id, power: 0, alive: false };
-            }
-
-            let power = 50; 
-            
-            // Skill
-            power += t.stats.weaponSkill; 
-            
-            // Status Penalties (Fix #4)
+            if (t.status === TributeStatus.Dead) return { id: t.id, power: 0, alive: false };
+            let power = 50 + t.stats.weaponSkill + (t.trainingScore / 2);
             if (t.stats.health < 40) power -= 20;
-            if (t.stats.health < 20) power -= 20;
             if (t.stats.hunger > 80) power -= 10;
-            if (t.stats.exhaustion > 80) power -= 10;
-            if (t.stats.sanity < 30) power -= 10; // Unpredictable but generally bad
-
-            // Inventory Value
-            t.inventory.forEach(item => {
-                power += (ITEM_VALUES[item] || 1) / 2;
-            });
-
-            // Traits
+            if (t.inventory.some(it => ITEM_VALUES[it] > 10)) power += 15;
             if (t.traits.includes('Trained')) power += 20;
-            if (t.traits.includes('Ruthless')) power += 15;
-            if (t.traits.includes('Survivalist')) power += 15;
-            if (t.traits.includes('Sharpshooter')) power += 10;
-            if (t.traits.includes('Devious')) power += 10;
-            if (t.traits.includes('Stoic')) power += 8;
-            if (t.traits.includes('Underdog')) power += 8;
-            if (t.traits.includes('Charming')) power += 5;
-
-            // Random Day-to-Day variance
-            power += Math.random() * 40; 
-
-            return {
-                id: t.id,
-                power: Math.max(1, power),
-                alive: true
-            };
+            if (t.traits.includes('Ruthless')) power += 25;
+            return { id: t.id, power: Math.max(1, power), alive: true };
         });
-
         let activeCount = roster.filter(r => r.alive).length;
         if (activeCount === 0) continue; 
-
         while (activeCount > 1) {
             let idx1 = Math.floor(Math.random() * roster.length);
             while (!roster[idx1].alive) idx1 = Math.floor(Math.random() * roster.length);
-
             let idx2 = Math.floor(Math.random() * roster.length);
             while (idx2 === idx1 || !roster[idx2].alive) idx2 = Math.floor(Math.random() * roster.length);
-
-            const f1 = roster[idx1];
-            const f2 = roster[idx2];
             
-            const totalPower = f1.power + f2.power;
-            const roll = Math.random() * totalPower;
-
-            if (roll < f1.power) {
-                f2.alive = false;
-                f1.power += 5; 
+            // Simple clash
+            if (Math.random() * (roster[idx1].power + roster[idx2].power) < roster[idx1].power) {
+                roster[idx2].alive = false; roster[idx1].power += 5;
             } else {
-                f1.alive = false;
-                f2.power += 5;
+                roster[idx1].alive = false; roster[idx2].power += 5;
             }
             activeCount--;
         }
-
-        const winner = roster.find(r => r.alive);
-        if (winner && winner.id === targetTribute.id) {
-            wins++;
-        }
+        if (roster.find(r => r.alive)?.id === targetTribute.id) wins++;
     }
-
     const winRate = wins / simulations;
-    
     if (winRate >= 0.30) return "Evens";
     if (winRate >= 0.20) return "2/1";
     if (winRate >= 0.15) return "3/1";
     if (winRate >= 0.10) return "5/1";
-    if (winRate >= 0.08) return "8/1";
-    if (winRate >= 0.06) return "10/1";
-    if (winRate >= 0.05) return "12/1";
-    if (winRate >= 0.04) return "15/1";
-    if (winRate >= 0.03) return "20/1";
-    if (winRate >= 0.02) return "30/1";
-    if (winRate >= 0.01) return "50/1";
-    return "75/1";
+    if (winRate >= 0.05) return "10/1";
+    if (winRate >= 0.02) return "25/1";
+    return "50/1";
 };
 
 export const recalculateAllOdds = (tributes: Tribute[]): Tribute[] => {
-    return tributes.map(t => ({
-        ...t,
-        odds: calculateSimulatedOdds(t, tributes)
-    }));
+    return tributes.map(t => ({ ...t, odds: calculateSimulatedOdds(t, tributes) }));
 };
 
 export const generateTributes = (): Tribute[] => {
   const tributes: Tribute[] = [];
   const careerAllianceId = `alliance-career-pack`;
-
   for (let i = 1; i <= 12; i++) {
     const isCareer = [1, 2, 4].includes(i);
-    
+    // Spiral placement
     const dir = (i / 12) * 2 * Math.PI;
-    const dist = 3;
-    const q = Math.round(dist * Math.cos(dir));
-    const r = Math.round(dist * Math.sin(dir));
+    const q = Math.round(3 * Math.cos(dir));
+    const r = Math.round(3 * Math.sin(dir));
     
-    const ageM = Math.floor(Math.random() * (18 - 12 + 1)) + 12;
-    const traitsM = getRandomTraits(i);
-    
-    tributes.push({
-      id: `d${i}_m`,
-      name: `District ${i} Male`,
-      district: i,
-      gender: 'M',
-      age: ageM,
-      status: TributeStatus.Alive,
-      killCount: 0,
-      inventory: [], 
-      allianceId: isCareer ? careerAllianceId : undefined,
-      coordinates: { q, r },
-      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: isCareer ? 20 : 0 },
-      traits: traitsM,
-      relationships: {}, 
-      notes: [],
-      odds: "TBD", 
-      trainingScore: 0
-    });
-
-    const ageF = Math.floor(Math.random() * (18 - 12 + 1)) + 12;
-    const traitsF = getRandomTraits(i);
-
-    tributes.push({
-      id: `d${i}_f`,
-      name: `District ${i} Female`,
-      district: i,
-      gender: 'F',
-      age: ageF,
-      status: TributeStatus.Alive,
-      killCount: 0,
-      inventory: [],
-      allianceId: isCareer ? careerAllianceId : undefined,
-      coordinates: { q, r }, 
-      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: isCareer ? 20 : 0 },
-      traits: traitsF,
-      relationships: {},
-      notes: [],
-      odds: "TBD",
-      trainingScore: 0
+    ['M', 'F'].forEach(gender => {
+        const id = `d${i}_${gender.toLowerCase()}`;
+        tributes.push({
+            id, name: `District ${i} ${gender === 'M' ? 'Male' : 'Female'}`,
+            district: i, gender: gender as 'M' | 'F',
+            age: Math.floor(Math.random() * 7) + 12,
+            status: TributeStatus.Alive, killCount: 0, inventory: [],
+            allianceId: isCareer ? careerAllianceId : undefined,
+            coordinates: { q, r },
+            stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: isCareer ? 20 : 0 },
+            traits: getRandomTraits(i),
+            relationships: {}, notes: [], odds: "TBD", trainingScore: 0
+        });
     });
   }
-
   // Initial Relationships
   tributes.forEach(t1 => {
       tributes.forEach(t2 => {
           if (t1.id === t2.id) return;
-          if (t1.allianceId === careerAllianceId && t2.allianceId === careerAllianceId) {
-              t1.relationships[t2.id] = 50;
-          }
-          if (t1.district === t2.district) {
-              t1.relationships[t2.id] = 30;
-          }
+          if (t1.allianceId && t1.allianceId === t2.allianceId) t1.relationships[t2.id] = 50;
+          else if (t1.district === t2.district) t1.relationships[t2.id] = 30;
+          else t1.relationships[t2.id] = 0;
       });
   });
-
-  // Calculate Odds
-  tributes.forEach(t => {
-      t.odds = calculateSimulatedOdds(t, tributes);
-  });
-
-  return tributes;
+  return recalculateAllOdds(tributes);
 };
 
 // --- Helpers ---
+const shuffle = <T,>(array: T[]): T[] => [...array].sort(() => Math.random() - 0.5);
 
-const escapeRegExp = (string: string) => {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
-};
-
-const shuffle = <T,>(array: T[]): T[] => {
-  let currentIndex = array.length, randomIndex;
-  const newArray = [...array];
-  while (currentIndex !== 0) {
-    randomIndex = Math.floor(Math.random() * currentIndex);
-    currentIndex--;
-    [newArray[currentIndex], newArray[randomIndex]] = [newArray[randomIndex], newArray[currentIndex]];
-  }
-  return newArray;
-};
-
-// Axial distance calculation
 const getDistance = (t1: Tribute, t2: Tribute): number => {
     const dq = t1.coordinates.q - t2.coordinates.q;
     const dr = t1.coordinates.r - t2.coordinates.r;
@@ -260,52 +114,31 @@ const parseEventText = (text: string, actors: Tribute[], eventTags: string[] = [
   let result = text;
   actors.forEach((actor, index) => {
     const placeholder = `(P${index + 1})`;
-    const regex = new RegExp(escapeRegExp(placeholder), 'g');
-    
     const isDesperate = actor.stats.hunger > 90 || actor.stats.sanity < 30 || actor.stats.health < 30;
     const extraClass = isDesperate ? 'text-red-400' : 'text-gold';
-
-    result = result.replace(regex, `<span class="font-bold ${extraClass} group relative cursor-help">
-      ${actor.name}
-      <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 w-max bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-50">
-        ${actor.traits.join(', ')} (${actor.stats.health} HP)
-      </span>
-    </span>`);
+    // Escape regex special characters in placeholder just in case
+    const safePlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    result = result.replace(new RegExp(safePlaceholder, 'g'), 
+      `<span class="font-bold ${extraClass} group relative cursor-help">
+        ${actor.name}
+        <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 w-max bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-50">
+          ${actor.traits.join(', ')} (${actor.stats.health} HP)
+        </span>
+      </span>`);
   });
   return result;
 };
 
-export const resolveEventTextPlain = (text: string, actors: Tribute[]): string => {
+const resolveEventTextPlain = (text: string, actors: Tribute[]): string => {
   let result = text;
-  actors.forEach((actor, index) => {
-    const placeholder = `(P${index + 1})`;
-    result = result.split(placeholder).join(actor.name);
-  });
+  actors.forEach((actor, index) => result = result.split(`(P${index + 1})`).join(actor.name));
   return result;
-};
-
-const getRelationship = (from: Tribute, to: Tribute): number => {
-  return from.relationships[to.id] ?? 0;
 };
 
 const modifyRelationship = (from: Tribute, to: Tribute, amount: number) => {
-  const current = getRelationship(from, to);
+  const current = from.relationships[to.id] || 0;
   from.relationships[to.id] = Math.max(-100, Math.min(100, current + amount));
-};
-
-// Helper conditions
-const isStarving = (t: Tribute) => t.stats.hunger > 80;
-const isInsane = (t: Tribute) => t.stats.sanity < 40;
-const isExhausted = (t: Tribute) => t.stats.exhaustion > 80;
-const isInjured = (t: Tribute) => t.stats.health < 60 || t.stats.sanity < 60; 
-const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30 || t.stats.health < 30;
-
-
-const hasSynergy = (actors: Tribute[], type: 'Combat' | 'Survival'): boolean => {
-    const allTraits = actors.flatMap(t => t.traits);
-    if (type === 'Combat') return allTraits.includes('Ruthless') && allTraits.includes('Trained');
-    if (type === 'Survival') return allTraits.includes('Coward') && allTraits.includes('Friendly');
-    return false;
 };
 
 const clampStats = (t: Tribute) => {
@@ -316,199 +149,90 @@ const clampStats = (t: Tribute) => {
     t.stats.weaponSkill = Math.max(0, Math.min(100, t.stats.weaponSkill));
 };
 
-const calculateEventScore = (
-    event: GameEvent, 
-    actors: Tribute[], 
-    phase: string, 
-    aggressionMultiplier: number, 
-    aliveCount: number, 
-    day: number,
-    minDays: number,
-    maxDays: number,
-    weather: WeatherType
-): number => {
-  const mainActor = actors[0];
-  const hasVictim = actors.length > 1 && event.victimIndices.length > 0;
-  const victim = hasVictim ? actors[event.victimIndices[0]] : null;
-
-  if (event.itemRequired) {
-    for (const item of event.itemRequired) {
-        if (!mainActor.inventory.includes(item)) return 0;
-    }
-  }
-  if (event.traitRequired) {
-      const hasTrait = event.traitRequired.some(t => mainActor.traits.includes(t));
-      if (!hasTrait) return 0;
-  }
+// --- Scoring ---
+const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string, aggressionMultiplier: number, weather: WeatherType): number => {
+  const main = actors[0];
+  
+  // Hard Constraints
+  if (event.playerCount !== actors.length) return 0;
+  if (event.itemRequired && !event.itemRequired.every(i => main.inventory.includes(i))) return 0;
+  if (event.traitRequired && !event.traitRequired.some(t => main.traits.includes(t))) return 0;
   if (event.condition && !event.condition(actors)) return 0;
 
   let score = event.weight || 1.0;
 
-  // Age bias
-  if (mainActor.age >= 16 && (event.tags?.includes('Kill') || event.tags?.includes('Attack'))) score *= 1.2;
-  if (mainActor.age <= 13 && (event.tags?.includes('Flee') || event.tags?.includes('Hide'))) score *= 1.2;
-
-  // Combat Skill (New)
-  if (event.tags?.includes('Kill') || event.tags?.includes('Attack')) {
-      score *= (1 + mainActor.stats.weaponSkill / 100);
-  }
-
-  // Synergies
-  if (actors.length > 1) {
-      if (hasSynergy(actors, 'Combat') && event.tags?.includes('Kill')) score *= 4.0;
-      if (hasSynergy(actors, 'Survival') && (event.tags?.includes('Social') || event.tags?.includes('Survival'))) score *= 3.0;
-  }
-
-  // Traits
-  if (mainActor.traits.includes('Clumsy') && (event.tags?.includes('Fail') || event.tags?.includes('Accident'))) score *= 3.0;
-  if (mainActor.traits.includes('Sharpshooter') && event.tags?.includes('Kill') && (mainActor.inventory.includes('Bow') || mainActor.inventory.includes('Gun'))) score *= 5.0;
-  if (mainActor.traits.includes('Glutton') && (event.tags?.includes('Food') || event.tags?.includes('Feast'))) score *= 3.0;
-
-  // Weather
-  if (weather === 'Rain' || weather === 'Storm') {
-      if (event.tags?.includes('Fire') || event.tags?.includes('Camp')) score *= 0.1;
-      if (event.tags?.includes('Shelter')) score *= 2.0;
-  }
-  if (weather === 'Fog') {
-      if (event.tags?.includes('Sneak') || event.tags?.includes('Ambush')) score *= 2.5;
-      if (event.tags?.includes('Hunt')) score *= 0.5; 
-  }
-  if (weather === 'Heatwave') {
-      if (event.tags?.includes('Water') || event.tags?.includes('Exhaustion')) score *= 3.0;
-  }
-
-  // Pacing
-  if (day < minDays && phase !== 'Bloodbath') {
-      if (event.fatalities || event.tags?.includes('Kill')) score *= 0.1;
-  }
-  if (day > maxDays) {
-       if (event.fatalities) score *= 10.0;
-  }
-
-  // Traits Multipliers
-  if (mainActor.traits.includes('Ruthless') && event.tags?.includes('Kill')) score *= 2.5;
-  if (mainActor.traits.includes('Coward') && (event.tags?.includes('Flee') || event.tags?.includes('Sneak'))) score *= 3.0;
-  if (mainActor.traits.includes('Survivalist') && (event.tags?.includes('Survival') || event.tags?.includes('Supply'))) score *= 2.5;
-  if (mainActor.traits.includes('Friendly') && event.tags?.includes('Social')) score *= 2.0;
-  if (mainActor.traits.includes('Unstable') && event.tags?.includes('Insanity')) score *= 3.0;
-  
-  if (mainActor.traits.includes('Charming')) {
-      if (event.tags?.includes('Social')) score *= 2.5;
-      if (event.tags?.includes('Sponsor')) score *= 3.0;
-  }
-
-  // Needs
-  if (event.tags?.includes('Food')) score *= (1 + mainActor.stats.hunger / 20);
-  if (event.tags?.includes('Sleep')) score *= (1 + mainActor.stats.exhaustion / 20);
-  if (event.tags?.includes('Desperate')) score *= 5.0;
-  if (event.tags?.includes('Heal')) {
-      if (mainActor.stats.health < 60 || mainActor.stats.sanity < 50) score *= 5.0;
-  }
-
-  // Suicide Curve (Smoother) - Fix #14
-  if (actors.length === 1 && event.tags?.includes('Suicide')) {
-      if (mainActor.stats.sanity < 30) {
-          // Exponential increase as sanity drops below 30
-          const severity = 30 - mainActor.stats.sanity;
-          score *= (1 + Math.pow(severity, 2) / 10);
-      } else {
-          score = 0;
+  // Context Multipliers
+  if (event.fatalities || event.tags?.includes('Kill') || event.tags?.includes('Attack')) {
+      score *= aggressionMultiplier;
+      if (main.traits.includes('Ruthless')) score *= 2.0;
+      if (main.stats.sanity < 30) score *= 2.0;
+      
+      // Relationship checks for kill
+      if (actors.length > 1 && actors[1]) {
+          const rel = main.relationships[actors[1].id] || 0;
+          if (rel > 50 && main.stats.sanity > 30) score *= 0.01; // Don't kill friends unless crazy
+          if (rel < -20) score *= 2.0; // Prefer enemies
       }
   }
 
-  // Relationship (Combat)
-  if (hasVictim && victim) {
-    const relation = getRelationship(mainActor, victim);
-    
-    if (mainActor.district === victim.district && event.fatalities && !mainActor.traits.includes('Ruthless') && aliveCount > 4) {
-        score -= 500;
-    }
-
-    if (event.fatalities) {
-       const isDesperate = event.tags?.includes('Desperate');
-       
-       let betrayalThreshold = 50;
-       if (aliveCount <= 4) betrayalThreshold = 80;
-       if (aliveCount <= 2) betrayalThreshold = 95;
-
-       if (aliveCount <= 4 || day > maxDays) {
-            score *= 5.0; 
-            if (relation > betrayalThreshold) score *= 0.1; 
-            else score *= 5.0;
-       } else {
-            if (relation > 30 && !mainActor.traits.includes('Ruthless') && !isDesperate) score *= 0.01;
-            if (relation < -50) score *= 3.0; 
-       }
-    }
-    
-    if (event.tags?.includes('Social')) {
-        if (relation < 0) score *= 0.01;
-        if (relation > 50) score *= 2.0;
-    }
+  if (event.tags?.includes('Social')) {
+      if (actors.length > 1 && actors[1]) {
+           const rel = main.relationships[actors[1].id] || 0;
+           if (rel < -20) score *= 0.1; // Don't chat with enemies
+           if (rel > 20) score *= 1.5;
+      }
+      if (main.traits.includes('Friendly')) score *= 1.5;
   }
 
-  if (event.fatalities) {
-    score *= aggressionMultiplier;
-  }
+  // Needs
+  if (event.tags?.includes('Food')) score *= (1 + main.stats.hunger / 25);
+  if (event.tags?.includes('Sleep')) score *= (1 + main.stats.exhaustion / 25);
+  if (event.tags?.includes('Heal') && main.stats.health < 60) score *= 3.0;
 
-  if (phase === 'Night' && event.tags?.includes('Sleep')) {
-      // Reduce sleep chance as game progresses
-      score *= Math.max(0.1, 1.0 - (day * 0.05));
-  }
-
-  return Math.max(0, score);
+  // Weather
+  if (weather === 'Rain' && event.tags?.includes('Shelter')) score *= 2.0;
+  
+  return score;
 };
 
-// --- Training Simulation ---
+// --- Training Phase ---
 export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes: Tribute[], logs: LogEntry[] } => {
     const logs: LogEntry[] = [];
-    const tributesMap = new Map(currentTributes.map(t => [t.id, {...t, relationships: {...t.relationships}, stats: {...t.stats}, traits: [...t.traits]}]));
+    // Create map for reference
+    const tributesMap = new Map(currentTributes.map(t => [t.id, JSON.parse(JSON.stringify(t))])); 
     const tributes = Array.from(tributesMap.values());
-    const availableIds = shuffle(tributes.map(t => t.id));
+    
+    // Everyone gets to do something
+    let queue = shuffle(tributes.map(t => t.id));
+    const processed = new Set<string>();
 
-    while (availableIds.length > 0) {
-        let groupSize = Math.random() < 0.7 ? 1 : 2;
-        
-        // Fix for odd remainder
-        if (availableIds.length === 1) groupSize = 1;
+    while (queue.length > 0) {
+        const actorId = queue.pop()!;
+        if (processed.has(actorId)) continue;
 
-        const actorId = availableIds.pop()!;
-        const actor = tributesMap.get(actorId)!;
-        const group: Tribute[] = [actor];
+        const actor = tributesMap.get(actorId);
+        const group = [actor];
+        processed.add(actorId);
 
-        if (groupSize === 2 && availableIds.length > 0) {
-            const partnerId = availableIds.pop()!;
-            group.push(tributesMap.get(partnerId)!);
+        // Chance to interact with others
+        if (queue.length > 0 && Math.random() < 0.4) {
+            const partnerId = queue.pop()!;
+            const partner = tributesMap.get(partnerId);
+            group.push(partner);
+            processed.add(partnerId);
         }
 
-        // Pick Event
         const validEvents = trainingEvents.filter(e => e.playerCount === group.length);
-        // Fallback
-        const event = validEvents.length > 0 
-            ? validEvents[Math.floor(Math.random() * validEvents.length)]
-            : { text: "(P1) trains in silence.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1 };
+        const event = validEvents[Math.floor(Math.random() * validEvents.length)] || trainingEvents[0]; // Fallback
 
-        // Effects
+        // Apply Stats
         group.forEach(t => {
             if (event.tags?.includes('Skill')) {
-                t.stats.weaponSkill = Math.min(100, t.stats.weaponSkill + 5);
+                t.stats.weaponSkill += 5; 
                 t.trainingScore += 10;
             }
             if (event.tags?.includes('Social') && group.length > 1) {
-                const other = group.find(g => g.id !== t.id);
-                if (other) {
-                    modifyRelationship(t, other, 10);
-                }
-            }
-            if (event.tags?.includes('Intimidate') && group.length > 1) {
-                 const other = group.find(g => g.id !== t.id);
-                 if (other) {
-                     modifyRelationship(t, other, -5);
-                     modifyRelationship(other, t, -10);
-                 }
-            }
-            if (event.tags?.includes('Stealth')) {
-                if (!t.traits.includes('Devious') && Math.random() < 0.2) t.traits.push('Devious');
+                group.forEach(other => { if (t.id !== other.id) modifyRelationship(t, other, 5); });
             }
             clampStats(t);
         });
@@ -517,23 +241,16 @@ export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes:
             id: crypto.randomUUID(),
             text: parseEventText(event.text, group),
             type: EventType.Training,
+            day: 0,
+            phase: 'Training',
             relatedTributeIds: group.map(t => t.id)
         });
     }
-
-    return { updatedTributes: tributes, logs };
+    
+    return { updatedTributes: Array.from(tributesMap.values()), logs };
 };
 
-
-// --- Phase Simulation ---
-
-interface PhaseResult {
-  updatedTributes: Tribute[];
-  logs: LogEntry[];
-  fallen: Tribute[];
-  deathsInPhase: number;
-}
-
+// --- Main Phase Simulation ---
 export const simulatePhase = (
   currentTributes: Tribute[],
   phase: 'Bloodbath' | 'Day' | 'Night',
@@ -544,490 +261,246 @@ export const simulatePhase = (
   currentWeather: WeatherType,
   fatalityRate: number,
   enableWeather: boolean
-): PhaseResult => {
-  // Deep copy
-  const tributesMap = new Map(currentTributes.map(t => [t.id, {
-      ...t,
-      stats: { ...t.stats },
-      inventory: [...t.inventory],
-      relationships: { ...t.relationships },
-      notes: [...t.notes],
-      traits: [...t.traits],
-      coordinates: { ...t.coordinates }
-  }]));
+): { updatedTributes: Tribute[], logs: LogEntry[], fallen: Tribute[], deathsInPhase: number } => {
 
+  const tributesMap = new Map(currentTributes.map(t => [t.id, JSON.parse(JSON.stringify(t))])); 
   const logs: LogEntry[] = [];
   const fallen: Tribute[] = [];
-  let deathsThisPhase = 0;
+  let deathsInPhase = 0;
 
-  // --- FEAST LOGIC ---
-  let isFeast = false;
-  if (phase === 'Day' && day === Math.floor(minDays / 2) && day > 1) {
-      isFeast = true;
-      logs.push({
-          id: `feast-${crypto.randomUUID()}`,
-          text: `<span class="text-orange-500 font-bold text-lg">THE FEAST BEGINS!</span> A cornucopia of supplies has appeared.`,
-          type: EventType.Feast
-      });
-      tributesMap.forEach(t => {
-          if (t.status === TributeStatus.Alive) {
-              t.stats.hunger = 0;
-              t.stats.health = Math.min(100, t.stats.health + 20);
-              t.coordinates = { q: 0, r: 0 };
-              clampStats(t);
-          }
-      });
-  }
-
-  // --- Global Arena Events ---
-  let arenaChance = 0.15;
-  if (day > maxDays) arenaChance = 0.40; // Increased late game
-
-  if (phase === 'Day' && Math.random() < arenaChance && !isFeast) {
-      const arenaEvent = arenaEvents[Math.floor(Math.random() * arenaEvents.length)];
-      logs.push({
-          id: `arena-${crypto.randomUUID()}`,
-          text: `<span class="text-red-500 font-bold uppercase tracking-widest">ARENA EVENT:</span> ${arenaEvent.text}`,
-          type: EventType.Arena
-      });
-      
-      tributesMap.forEach(t => {
-          if (t.status === TributeStatus.Alive) {
-              if (arenaEvent.damage) t.stats.health -= arenaEvent.damage;
-              if (arenaEvent.heal) t.stats.health = 100;
-              if (arenaEvent.feed) t.stats.hunger = 0;
-              if (arenaEvent.type === 'Psychological') t.stats.sanity -= 20;
-
-              clampStats(t);
-              
-              if (t.stats.health <= 0) {
-                  t.status = TributeStatus.Dead;
-                  t.stats.health = 0;
-                  t.deathCause = "Arena Event";
-                  fallen.push(t);
-                  deathsThisPhase++;
-                  logs.push({
-                      id: `arena-death-${t.id}`,
-                      text: `${t.name} succumbed to the arena event.`,
-                      type: EventType.Arena,
-                      deathNames: [t.name],
-                      relatedTributeIds: [t.id]
-                  });
-              }
-          }
-      });
-  }
-  
-  // --- Step 1: Stats & Weather ---
+  // --- Pre-Phase Logic (Stats & Weather) ---
   if (phase !== 'Bloodbath') {
     tributesMap.forEach(t => {
-      if (t.status === TributeStatus.Dead) return;
-      
-      // Hunger increase with variance
-      let hungerGain = Math.floor(Math.random() * 20) + 5;
-      let exhaustionGain = phase === 'Day' ? 10 : -20;
-
-      if (enableWeather) {
-        if (currentWeather === 'Heatwave') hungerGain += 5;
-        if (currentWeather === 'Storm' && phase === 'Day') exhaustionGain += 10;
-      }
-      
-      // Resourcefulness check (Finding food off-screen)
-      if (t.traits.includes('Survivalist') || t.traits.includes('Trained')) {
-          if (Math.random() < 0.3) hungerGain = -10; 
-      }
-      
-      t.stats.hunger += hungerGain;
-      t.stats.exhaustion += exhaustionGain;
-      
-      if (phase === 'Night' && t.stats.hunger < 50 && t.stats.exhaustion < 20) {
-          t.stats.sanity = Math.min(100, t.stats.sanity + 15);
-      }
-      if (t.stats.hunger < 20 && t.stats.sanity > 70 && t.stats.health < 100) {
-          t.stats.health += 5;
-      }
-
-      tributesMap.forEach(other => {
-          if (t.id === other.id || other.status === TributeStatus.Dead) return;
-          const currentRel = t.relationships[other.id] || 0;
-          if (currentRel > 5) t.relationships[other.id] -= 2;     
-          else if (currentRel < -5) t.relationships[other.id] += 1; 
-          
-          if (t.district === other.district) modifyRelationship(t, other, 5);
-          if (t.allianceId && t.allianceId === other.allianceId) modifyRelationship(t, other, 5);
-      });
-      
-      clampStats(t);
+        if (t.status === TributeStatus.Dead) return;
+        
+        // Hunger & Exhaustion
+        t.stats.hunger += (Math.random() * 10 + 5) + (currentWeather === 'Heatwave' ? 5 : 0);
+        t.stats.exhaustion += (phase === 'Day' ? 10 : -20); // Recover at night
+        
+        if (phase === 'Night' && t.stats.exhaustion < 0) {
+            t.stats.sanity += 5; // Good sleep helps sanity
+            t.stats.health += 5;
+        }
+        
+        clampStats(t);
     });
   }
 
-  // --- Step 2: Director / Aggression ---
-  // Dynamic aggression ramp
-  let aggressionMultiplier = fatalityRate * (1 + (day * 0.15));
+  // --- Aggression Calculation ---
+  let aggression = fatalityRate;
   const aliveCount = Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).length;
-
-  if (daysSinceLastDeath > 2) aggressionMultiplier *= 2.0; 
-  if (aliveCount <= 4) aggressionMultiplier *= 3.0; 
-  if (isFeast) aggressionMultiplier = 3.0;
-  if (phase === 'Bloodbath') aggressionMultiplier = 5.0;
-
-  // Event Pool
-  let basePool: GameEvent[] = [];
   
-  // Stalemate Breaker
-  if (daysSinceLastDeath > 3) {
-      basePool = fatalEvents;
-  } else if (isFeast) {
-      basePool = feastEvents;
-  } else if (phase === 'Bloodbath') {
-      basePool = [...bloodbathEvents, ...bloodbathDeathEvents];
-  } else if (phase === 'Night') {
-      basePool = [...nightEvents, ...fatalEvents.filter(e => e.tags?.includes('Sneak') || e.tags?.includes('Elements'))];
-  } else {
-      basePool = [...generalEvents, ...fatalEvents];
+  if (phase === 'Bloodbath') aggression = 5.0;
+  else if (daysSinceLastDeath > 2) aggression *= 2.5; // Boring game fixer
+  else if (aliveCount <= 4) aggression *= 3.0; // Finale
+  
+  if (day > maxDays) aggression *= 10.0; // Sudden death
+
+  // --- Event Pool Selection ---
+  let pool: GameEvent[] = [];
+  if (phase === 'Bloodbath') pool = [...bloodbathEvents, ...bloodbathDeathEvents];
+  else if (phase === 'Night') pool = [...nightEvents, ...fatalEvents.filter(e => e.tags?.includes('Sneak'))];
+  else pool = [...generalEvents, ...fatalEvents];
+
+  // --- Action Loop (Turn-Based Queue) ---
+  let queue = shuffle(Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).map(t => t.id));
+  const processedThisTurn = new Set<string>();
+
+  while (queue.length > 0) {
+      const actorId = queue.pop();
+      if (!actorId || processedThisTurn.has(actorId)) continue;
+
+      const actor = tributesMap.get(actorId)!;
+      
+      // Stamina Check: If too exhausted, they just sleep/rest (skip turn)
+      if (actor.stats.exhaustion > 90 && phase !== 'Bloodbath') {
+          logs.push({ 
+              id: crypto.randomUUID(), 
+              text: `${actor.name} collapses from exhaustion and sleeps through the chaos.`, 
+              type: phase === 'Night' ? EventType.Night : EventType.Day,
+              day, phase, relatedTributeIds: [actor.id]
+          });
+          actor.stats.exhaustion = 0;
+          processedThisTurn.add(actorId);
+          continue;
+      }
+
+      // --- Group Formation ---
+      const group: Tribute[] = [actor];
+      const maxGroupSize = Math.floor(Math.random() * 3) + 2; // 2 to 4
+
+      // 1. Try Alliance
+      if (actor.allianceId) {
+          const allies = queue
+            .map(id => tributesMap.get(id)!)
+            .filter(t => t.allianceId === actor.allianceId && !processedThisTurn.has(t.id))
+            .slice(0, maxGroupSize - 1);
+          allies.forEach(a => {
+              group.push(a);
+              processedThisTurn.add(a.id);
+              // Remove from queue
+              const idx = queue.indexOf(a.id);
+              if (idx > -1) queue.splice(idx, 1);
+          });
+      }
+
+      // 2. If still room, try Proximity/Random
+      if (group.length < maxGroupSize) {
+          // Filter valid neighbors from queue
+          const neighbors = queue
+            .map(id => tributesMap.get(id)!)
+            .filter(t => !processedThisTurn.has(t.id) && getDistance(actor, t) <= 1);
+          
+          // Sort neighbors by relationship (Friends or Enemies preferred over neutral)
+          neighbors.sort((a, b) => Math.abs(actor.relationships[b.id] || 0) - Math.abs(actor.relationships[a.id] || 0));
+
+          while (group.length < maxGroupSize && neighbors.length > 0) {
+              const neighbor = neighbors.shift()!;
+              group.push(neighbor);
+              processedThisTurn.add(neighbor.id);
+              const idx = queue.indexOf(neighbor.id);
+              if (idx > -1) queue.splice(idx, 1);
+          }
+      }
+      
+      processedThisTurn.add(actorId);
+
+      // --- Event Selection ---
+      // Try to find an event for the current group size. If fails, pop a member and try smaller size.
+      let chosenEvent: GameEvent | null = null;
+      
+      while (group.length > 0 && !chosenEvent) {
+          const possibleEvents = pool.filter(e => e.playerCount === group.length);
+          
+          // Weighted Random Choice
+          let totalWeight = 0;
+          const weighted = possibleEvents.map(e => {
+              const w = calculateEventScore(e, group, phase, aggression, currentWeather);
+              totalWeight += w;
+              return { e, w };
+          }).filter(i => i.w > 0);
+
+          if (weighted.length > 0) {
+              let r = Math.random() * totalWeight;
+              for (const item of weighted) {
+                  r -= item.w;
+                  if (r <= 0) {
+                      chosenEvent = item.e;
+                      break;
+                  }
+              }
+          }
+
+          if (!chosenEvent) {
+              // If no event found for this group size, remove the last added member (unless it's the actor)
+              // and return them to the queue (unless it's the actor)
+              if (group.length > 1) {
+                  const removed = group.pop()!;
+                  processedThisTurn.delete(removed.id);
+                  queue.push(removed.id); // Put back in pool
+              } else {
+                  // Desperate fallback for 1 person
+                  chosenEvent = { text: "(P1) survives another hour.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1 };
+              }
+          }
+      }
+
+      // --- Event Execution ---
+      if (chosenEvent) {
+          // Items
+          if (chosenEvent.itemGain) group[0].inventory.push(...chosenEvent.itemGain);
+          if (chosenEvent.consumesItem && chosenEvent.itemRequired) {
+             chosenEvent.itemRequired.forEach(i => {
+                 const idx = group[0].inventory.indexOf(i);
+                 if (idx > -1) group[0].inventory.splice(idx, 1);
+             });
+          }
+
+          // Damage
+          if (chosenEvent.healthDamage) {
+              const targets = chosenEvent.playerCount > 1 ? group : [group[0]];
+              targets.forEach(t => {
+                  t.stats.health -= chosenEvent!.healthDamage!;
+                  if (t.stats.health <= 0 && !chosenEvent!.fatalities) {
+                       // Accidental death logic
+                       t.status = TributeStatus.Dead;
+                       t.deathCause = "Succumbed to injuries";
+                       fallen.push({...t});
+                       deathsInPhase++;
+                  }
+              });
+          }
+
+          // Fatalities
+          const deathNames: string[] = [];
+          if (chosenEvent.fatalities) {
+              const killer = chosenEvent.killerIndices.length > 0 ? group[chosenEvent.killerIndices[0]] : null;
+              
+              chosenEvent.victimIndices.forEach(vIdx => {
+                  if (group[vIdx]) {
+                      const victim = group[vIdx];
+                      victim.status = TributeStatus.Dead;
+                      victim.stats.health = 0;
+                      victim.deathCause = resolveEventTextPlain(chosenEvent!.text, group);
+                      if (killer) {
+                          victim.killerId = killer.id;
+                          victim.killerName = killer.name;
+                          killer.killCount++;
+                          killer.inventory.push(...victim.inventory); // Loot
+                          victim.inventory = [];
+                      }
+                      fallen.push({...victim});
+                      deathNames.push(victim.name);
+                      deathsInPhase++;
+                  }
+              });
+          } else if (group.length > 1) {
+               // Relationship effects for non-fatal interactions
+               if (chosenEvent.tags?.includes('Social')) {
+                   modifyRelationship(group[0], group[1], 10);
+                   modifyRelationship(group[1], group[0], 10);
+               } else if (chosenEvent.tags?.includes('Attack') || chosenEvent.tags?.includes('Theft')) {
+                   modifyRelationship(group[0], group[1], -20);
+                   modifyRelationship(group[1], group[0], -40);
+               }
+          }
+
+          // Logging
+          logs.push({
+              id: crypto.randomUUID(),
+              text: parseEventText(chosenEvent.text, group),
+              type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : EventType.Day),
+              day, phase,
+              deathNames: deathNames.length > 0 ? deathNames : undefined,
+              relatedTributeIds: group.map(t => t.id)
+          });
+      }
   }
 
-  // --- Step 3: Action Loop ---
-  let availableIds = Array.from(tributesMap.values())
-      .filter(t => t.status === TributeStatus.Alive)
-      .map(t => t.id);
-  availableIds = shuffle(availableIds);
-  
-  // Group Splitting Logic
-  if (Math.random() < 0.2 && phase === 'Day') {
-      tributesMap.forEach(t => {
-          if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
-              if (Math.random() < 0.3) t.allianceId = undefined;
-          }
+  // --- Cleanup: Arena Events (Global) ---
+  // Small chance for global event *after* individual turns
+  if (phase === 'Day' && Math.random() < 0.15) {
+      const ae = arenaEvents[Math.floor(Math.random() * arenaEvents.length)];
+      logs.push({ 
+          id: `arena-${day}`, 
+          text: `<span class="text-red-500 font-bold">ARENA EVENT:</span> ${ae.text}`, 
+          type: EventType.Arena, day, phase 
       });
-  }
-  
-  // Pre-cleanup Alliances (Fix #11)
-  // Logic moved to after events to prevent breaking active pairs, but improved check added below loop.
-
-  while (availableIds.length > 0) {
-    const actorId = availableIds.pop();
-    if (!actorId) break;
-    
-    const actor = tributesMap.get(actorId)!;
-    // Double check dead (e.g. killed in previous loop iteration this phase)
-    if (actor.status === TributeStatus.Dead) continue;
-
-    let groupIds: string[] = [actorId];
-    
-    // Ally pull-in
-    if (actor.allianceId) {
-        const allies = Array.from(tributesMap.values())
-            .filter(t => t.status === TributeStatus.Alive && t.allianceId === actor.allianceId && t.id !== actor.id && availableIds.includes(t.id) && getDistance(actor, t) <= 1)
-            .map(t => t.id);
-        if (allies.length > 0) groupIds.push(...allies);
-    }
-
-    // Determine Desire (Hierarchy of Needs)
-    let desire: 'Kill' | 'Social' | 'Solo' = 'Solo';
-    
-    // 1. Critical Survival
-    if (actor.stats.hunger > 90 || actor.stats.health < 30) {
-        desire = 'Solo'; 
-    }
-    // 2. Insanity
-    else if (actor.stats.sanity < 30) {
-         desire = Math.random() < 0.5 ? 'Kill' : 'Solo';
-    }
-    // 3. Aggression
-    else if (daysSinceLastDeath > 3 && aliveCount > 2) desire = 'Kill';
-    else if ((actor.traits.includes('Ruthless') || aliveCount <= 4) && Math.random() < 0.3) desire = 'Kill';
-    else if (phase === 'Bloodbath' && Math.random() < 0.7) desire = 'Kill';
-    // 4. Social
-    else if (actor.traits.includes('Friendly') || actor.traits.includes('Charming') || Math.random() < 0.4) desire = 'Social';
-
-    // Form Groups based on desire
-    const maxGroupSize = Math.random() < 0.9 ? 2 : (Math.floor(Math.random() * 4) + 3);
-    
-    while (groupIds.length < maxGroupSize && availableIds.length > 0) {
-        let bestTargetId: string | null = null;
-        let bestScore = -999;
-        
-        for (const targetId of availableIds) {
-             if (groupIds.includes(targetId)) continue;
-             const target = tributesMap.get(targetId)!;
-             // Ensure target is still alive (paranoia check)
-             if (target.status === TributeStatus.Dead) continue;
-             if (getDistance(actor, target) > 1) continue;
-
-             const relation = getRelationship(actor, target);
-             let score = 0;
-
-             if (desire === 'Kill') {
-                 score = -relation; 
-                 // Target weak
-                 if (target.stats.health < 50) score += 50;
-                 if (actor.district === target.district) score -= 100;
-             } else if (desire === 'Social') {
-                 score = relation;
-                 if (target.allianceId === actor.allianceId) score += 50;
+      if (ae.damage) {
+          tributesMap.forEach(t => {
+             if (t.status === TributeStatus.Alive) {
+                 t.stats.health -= ae.damage!;
+                 if (t.stats.health <= 0) {
+                     t.status = TributeStatus.Dead;
+                     t.deathCause = "Arena Event";
+                     fallen.push({...t});
+                     deathsInPhase++;
+                     logs.push({ id: `ae-death-${t.id}`, text: `${t.name} died from the arena event.`, type: EventType.Arena, day, phase, deathNames: [t.name] });
+                 }
              }
-
-             score += Math.random() * 30; 
-             
-             if (score > bestScore) {
-                 bestScore = score;
-                 bestTargetId = targetId;
-             }
-        }
-
-        if (bestTargetId) {
-             const relation = getRelationship(actor, tributesMap.get(bestTargetId)!);
-             // Thresholds to interact
-             if (desire === 'Social' && relation > -20) groupIds.push(bestTargetId);
-             else if (desire === 'Kill' && (relation < 20 || aliveCount <= 4)) groupIds.push(bestTargetId);
-             else break; // No good targets
-        } else {
-            break;
-        }
-    }
-
-    // Remove group members from available pool
-    groupIds.forEach(id => {
-        if (id !== actorId) {
-            const idx = availableIds.indexOf(id);
-            if (idx > -1) availableIds.splice(idx, 1);
-        }
-    });
-
-    const finalGroupSize = groupIds.length;
-    const groupActors = groupIds.map(id => tributesMap.get(id)!);
-
-    // Alliance Logic fix: Only form NEW alliance if not already in one or large social group
-    if (desire === 'Social' && finalGroupSize > 1 && !actor.allianceId) {
-        const avgRel = groupActors.reduce((acc, t) => acc + (t.relationships[actor.id]||0), 0) / finalGroupSize;
-        if (avgRel > 20) {
-            const newAllianceId = `alliance-${day}-${Math.random().toString(36).substr(2, 5)}`;
-            // Only pull in people who aren't in a strong alliance
-            groupActors.forEach(t => {
-                if (!t.allianceId) t.allianceId = newAllianceId;
-            });
-        }
-    }
-
-    let possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
-
-    if (phase === 'Bloodbath') {
-         if (Math.random() < 0.6) { 
-             possibleEvents = possibleEvents.filter(e => e.fatalities || e.tags?.includes('Kill'));
-         }
-    }
-
-    if (desire === 'Kill') possibleEvents = possibleEvents.filter(e => e.fatalities || e.tags?.includes('Attack') || e.playerCount > 1);
-    else if (desire === 'Social') possibleEvents = possibleEvents.filter(e => !e.fatalities && !e.tags?.includes('Attack'));
-    
-    if (possibleEvents.length === 0) {
-        // Fix #9: Fallback to generic attack if desire was Kill
-        if (desire === 'Kill' && finalGroupSize > 1) {
-             possibleEvents = [
-                { text: "(P1) attacks (P2) but fails to kill them.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Fail'], healthDamage: 15 }
-             ];
-        } else {
-             possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
-        }
-    }
-    
-    // Filter non-fatalities if pacing requires it
-    if (day < minDays && deathsThisPhase > 4 && phase !== 'Bloodbath') possibleEvents = possibleEvents.filter(e => !e.fatalities);
-
-    // Filter Travel events during Feast to prevent leaving immediately (Fix #10)
-    if (isFeast) {
-        possibleEvents = possibleEvents.filter(e => !e.tags?.includes('Travel'));
-    }
-
-    let chosenEvent: GameEvent | null = null;
-    let totalWeight = 0;
-    
-    const weightedEvents = possibleEvents.map(event => {
-        const w = calculateEventScore(event, groupActors, phase, aggressionMultiplier, aliveCount, day, minDays, maxDays, currentWeather);
-        totalWeight += w;
-        return { event, weight: w };
-    }).filter(item => item.weight > 0);
-
-    if (weightedEvents.length > 0) {
-        let r = Math.random() * totalWeight;
-        for (const item of weightedEvents) {
-            r -= item.weight;
-            if (r <= 0) {
-                chosenEvent = item.event;
-                break;
-            }
-        }
-    }
-
-    // Fallback
-    if (!chosenEvent) {
-         if (finalGroupSize === 1) chosenEvent = { text: "(P1) wanders aimlessly.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [] };
-         else {
-             const names = groupActors.map((_, i) => `(P${i+1})`).join(', ');
-             chosenEvent = { 
-                 text: `The group of ${names} huddle together nervously.`, 
-                 playerCount: finalGroupSize, 
-                 fatalities: false, 
-                 killerIndices: [], 
-                 victimIndices: [] 
-            };
-         }
-    }
-    
-    const actors = groupIds.map(id => tributesMap.get(id)!);
-    const deathNames: string[] = [];
-
-    if (chosenEvent.itemGain) actors[0].inventory.push(...chosenEvent.itemGain);
-    if (chosenEvent.itemRequired && chosenEvent.consumesItem) {
-        const itemsToRemove = Array.isArray(chosenEvent.consumesItem) ? chosenEvent.consumesItem : chosenEvent.itemRequired;
-        itemsToRemove.forEach(item => {
-            const idx = actors[0].inventory.indexOf(item);
-            if (idx > -1) actors[0].inventory.splice(idx, 1);
-        });
-    }
-    
-    // Inventory Limit (Fix #3: Ensure best items kept)
-    if (actors[0].inventory.length > 4) {
-        // Sort puts high value items first
-        actors[0].inventory.sort((a, b) => (ITEM_VALUES[b] || 0) - (ITEM_VALUES[a] || 0));
-        actors[0].inventory = actors[0].inventory.slice(0, 4); 
-    }
-
-    // Stats
-    if (chosenEvent.tags?.includes('Food')) actors[0].stats.hunger = Math.max(0, actors[0].stats.hunger - 40);
-    if (chosenEvent.tags?.includes('Heal')) {
-        actors[0].stats.health = Math.min(100, actors[0].stats.health + 30);
-        actors[0].stats.sanity = Math.min(100, actors[0].stats.sanity + 10);
-    }
-    if (chosenEvent.tags?.includes('Sleep')) actors[0].stats.exhaustion = 0;
-
-    // Travel logic (Hex Map)
-    if (chosenEvent.tags?.includes('Travel') || chosenEvent.tags?.includes('Flee') || chosenEvent.tags?.includes('Hunt')) {
-        const directions = [
-            {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
-            {q: -1, r: 0}, {q: -1, r: 1}, {q: 0, r: 1}
-        ];
-        const move = directions[Math.floor(Math.random() * directions.length)];
-        actors.forEach(a => {
-            const prevQ = a.coordinates.q;
-            const prevR = a.coordinates.r;
-            a.coordinates.q += move.q;
-            a.coordinates.r += move.r;
-            // Hex boundary check (Fix #7: Bounce instead of reset)
-            if (Math.abs(a.coordinates.q + a.coordinates.r) > 5 || Math.abs(a.coordinates.q) > 5 || Math.abs(a.coordinates.r) > 5) {
-                // Bounce logic: reverse the move
-                a.coordinates.q = prevQ - move.q;
-                a.coordinates.r = prevR - move.r;
-                
-                // Double check bounce validity (corner case), if still out, reset to prev
-                if (Math.abs(a.coordinates.q + a.coordinates.r) > 5 || Math.abs(a.coordinates.q) > 5 || Math.abs(a.coordinates.r) > 5) {
-                     a.coordinates.q = prevQ;
-                     a.coordinates.r = prevR;
-                }
-            }
-        });
-    }
-
-    if (chosenEvent.healthDamage) {
-        actors[0].stats.health -= chosenEvent.healthDamage;
-        if (actors[0].stats.health <= 0 && !chosenEvent.fatalities) {
-             actors[0].status = TributeStatus.Dead;
-             actors[0].deathCause = "Succumbed to injuries";
-             fallen.push({...actors[0]});
-             deathNames.push(actors[0].name);
-             deathsThisPhase++;
-             chosenEvent.text += ` (P1) succumbs to their injuries.`;
-        }
-    }
-
-    if (chosenEvent.fatalities) {
-        deathsThisPhase += chosenEvent.victimIndices.length;
-        const killer = chosenEvent.killerIndices.length > 0 ? actors[chosenEvent.killerIndices[0]] : null;
-        
-        chosenEvent.victimIndices.forEach(vIdx => {
-            if (vIdx < actors.length) {
-                const v = actors[vIdx];
-                v.status = TributeStatus.Dead;
-                v.stats.health = 0;
-                v.deathCause = resolveEventTextPlain(chosenEvent!.text, actors);
-                if (killer) v.killerId = killer.id;
-                
-                if (killer && v.inventory.length > 0) {
-                    killer.inventory.push(...v.inventory);
-                    v.inventory = []; // Looted
-                    if (killer.inventory.length > 4) {
-                        // Ensure killer keeps the BEST items (Fix #3)
-                        killer.inventory.sort((a, b) => (ITEM_VALUES[b] || 0) - (ITEM_VALUES[a] || 0));
-                        killer.inventory = killer.inventory.slice(0, 4); 
-                    }
-                }
-                
-                fallen.push({ ...v });
-                deathNames.push(v.name);
-            }
-        });
-
-        if (killer) {
-             killer.killCount += chosenEvent.victimIndices.length;
-             if (!killer.traits.includes('Ruthless')) killer.stats.sanity -= 20;
-
-             if (killer.traits.includes('Coward') && killer.killCount >= 2) {
-                 killer.traits = killer.traits.filter(t => t !== 'Coward');
-                 killer.traits.push('Ruthless');
-                 logs.push({ id: `ev-${crypto.randomUUID()}`, text: `<span class="text-purple-400 font-bold">TRAIT EVOLUTION:</span> ${killer.name} has shed their cowardice.`, type: EventType.Day, relatedTributeIds: [killer.id] });
-             }
-             if (killer.traits.includes('Underdog') && killer.killCount >= 3) {
-                 killer.traits = killer.traits.filter(t => t !== 'Underdog');
-                 killer.traits.push('Trained');
-             }
-        }
-    } else {
-        if (actors.length === 2 && (chosenEvent.tags?.includes('Attack') || chosenEvent.tags?.includes('Theft'))) {
-            const p1 = actors[0];
-            const p2 = actors[1];
-            modifyRelationship(p2, p1, -40);
-        }
-    }
-
-    actors.forEach(clampStats);
-
-    const finalLogText = parseEventText(chosenEvent.text, actors, chosenEvent.tags);
-
-    logs.push({
-      id: crypto.randomUUID(),
-      text: finalLogText,
-      type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : (isFeast ? EventType.Feast : EventType.Day)),
-      deathNames: deathNames.length > 0 ? deathNames : undefined,
-      relatedTributeIds: actors.map(t => t.id) // Fix #5
-    });
+          });
+      }
   }
 
-  // --- Cleanup: Fragmentation ---
-  // Fix #11: Robust Alliance Cleanup
-  const allianceCounts = new Map<string, number>();
-  tributesMap.forEach(t => {
-      if (t.status === TributeStatus.Alive && t.allianceId) {
-          allianceCounts.set(t.allianceId, (allianceCounts.get(t.allianceId) || 0) + 1);
-      }
-  });
-  
-  tributesMap.forEach(t => {
-      if (t.status === TributeStatus.Alive && t.allianceId) {
-          // Disband if only 1 member
-          if (allianceCounts.get(t.allianceId)! < 2) {
-              // If it's a career pack, maybe they stay loyal to the ideal longer? 
-              // For now, standard rules: solo = no alliance.
-              t.allianceId = undefined;
-          }
-      }
-  });
-
-
-  return {
-    updatedTributes: Array.from(tributesMap.values()),
-    logs,
-    fallen,
-    deathsInPhase: deathsThisPhase
-  };
+  return { updatedTributes: Array.from(tributesMap.values()), logs, fallen, deathsInPhase };
 };

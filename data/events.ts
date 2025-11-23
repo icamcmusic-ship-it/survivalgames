@@ -40,9 +40,12 @@ export const bloodbathEvents: GameEvent[] = [
   { text: "(P1) grabs a bottle of alcohol and a rag.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Molotov Components'] },
   { text: "(P1) finds a canteen full of water.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'] },
   { text: "(P1) falls down and hurts themselves.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Fail'], healthDamage: 15 },
-  { text: "(P1) breaks (P2)'s nose for a basket of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Food'], healthDamage: 10 },
   { text: "(P1) finds a trident.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Trident'] },
   { text: "(P1) grabs a spear from inside the Cornucopia.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'], itemGain: ['Spear'] },
+  { text: "(P1) grabs a coil of wire.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Wire'] },
+  { text: "(P1) finds a large roll of sheet plastic.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Sheet Plastic'] },
+  { text: "(P1) snatches a length of rope.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Rope'] },
+  
   // New
   { text: "(P1) hides inside the Cornucopia until the initial chaos ends.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Hide', 'Coward'] },
   { text: "(P1) accidentally drops their weapon while running.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Clumsy', 'Fail'] },
@@ -64,6 +67,7 @@ export const bloodbathDeathEvents: GameEvent[] = [
   { text: "(P1) repeatedly stabs (P2) while they are down.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 3.0, tags: ['Kill', 'Ruthless'] },
   { text: "(P1) pushes (P2) into a pack of waiting mutts.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.0, tags: ['Kill', 'Environment'] },
   { text: "(P1) finds a scythe and cuts (P2) in half.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.5, tags: ['Kill'] },
+  { text: "(P1) shoots (P2) in the back with a pistol found in the Cornucopia.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 2.0, tags: ['Kill'], itemGain: ['Gun'] },
 ];
 
 // --- FEAST EVENTS ---
@@ -115,6 +119,10 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) discovers a hidden cave.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Travel'] },
   { text: "(P1) finds a dead tribute and loots their body.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Supply'] },
   { text: "(P1) sharpens their weapons.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
+  // New Looting events
+  { text: "(P1) loots an abandoned campsite.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.8, tags: ['Supply'], itemGain: ['Food', 'Water'] },
+  { text: "(P1) finds a supply crate dropped by a parachute.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Supply'], itemGain: ['Ammo', 'Knife'] },
+  { text: "(P1) stumbles upon a hidden stash.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Supply'], itemGain: ['Sheet Plastic', 'Rope'] },
   
   // Rare Scavenge (Fix for missing explosives)
   { text: "(P1) scavenges an old supply crate and finds some Explosives.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.3, tags: ['Supply'], itemGain: ['Explosives'] },
@@ -176,11 +184,11 @@ export const fatalEvents: GameEvent[] = [
   { text: "(P1) dies from hypothermia.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.5, tags: ['Elements'] },
   { text: "(P1) falls into a pit and dies.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.2, tags: ['Accident'] },
   { text: "(P1) tracks down and kills (P2).", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.0, tags: ['Kill', 'Hunt'] },
-  { text: "(P1) sets (P2) on fire with a molotov.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.5, tags: ['Kill', 'Fire'] },
+  { text: "(P1) sets (P2) on fire with a molotov.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.5, tags: ['Kill', 'Fire'], itemRequired: ['Molotov Components'], consumesItem: true },
   { text: "(P1), (P2), and (P3) get into a fight. (P1) kills them both.", playerCount: 3, fatalities: true, killerIndices: [0], victimIndices: [1, 2], weight: 0.3, tags: ['Kill', 'Multi'] },
   { text: "(P1) severely injures (P2) and leaves them to die.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill', 'Cruel'] },
   { text: "(P1) pushes (P2) off a cliff during a struggle.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill', 'Environment'] },
-  { text: "(P1) strangles (P2) with a rope.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
+  { text: "(P1) strangles (P2) with a rope.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'], itemRequired: ['Rope'] },
   { text: "(P1) bleeds out from untreated injuries.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Death'], condition: (a) => isInjured(a[0]) },
   { text: "(P1) can no longer bear the nightmare and ends their own life.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.1, tags: ['Suicide'] },
   { text: "(P1) steps on a bear trap and bleeds out.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.5, tags: ['Accident'] },
@@ -191,6 +199,7 @@ export const fatalEvents: GameEvent[] = [
   { text: "(P1) detonates explosives, killing (P2) and (P3) instantly.", playerCount: 3, fatalities: true, killerIndices: [0], victimIndices: [1, 2], weight: 10.0, tags: ['Kill', 'Explosive'], itemRequired: ['Explosives'], consumesItem: true },
   { text: "(P1) bashes (P2) with a shovel.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Shovel'] },
   { text: "(P1) stabs (P2) with a trident.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Trident'] },
+  { text: "(P1) shoots (P2) with a pistol.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 6.0, tags: ['Kill'], itemRequired: ['Gun', 'Ammo'], consumesItem: ['Ammo'] },
 
   // Trait Specific Kills
   { text: "(P1) mercilessly snaps (P2)'s neck.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 3.0, tags: ['Kill'], traitRequired: ['Ruthless'] },

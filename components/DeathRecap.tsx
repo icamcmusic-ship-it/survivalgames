@@ -1,11 +1,13 @@
+
 import React, { useState } from 'react';
-import { Tribute, TributeStatus } from '../types';
+import { Tribute, TributeStatus, RoundHistory } from '../types';
 import { PostGameSummary } from './PostGameSummary';
 
 interface DeathRecapProps {
   fallen: Tribute[];
-  allTributes: Tribute[]; // Needed for killer lookup
+  allTributes: Tribute[]; 
   onNext: () => void;
+  history?: RoundHistory[]; // Add History prop if available in context (optional here, simpler to leave for StatsModal)
 }
 
 export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onNext }) => {
@@ -20,9 +22,8 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
   };
 
   if (showSummary) {
-      // Determine winner
       const alive = allTributes.filter(t => t.status === TributeStatus.Alive);
-      const winner = alive.length > 0 ? alive[0] : allTributes[0]; // Fallback if everyone died
+      const winner = alive.length > 0 ? alive[0] : allTributes[0];
 
       return (
           <div className="h-full flex flex-col p-6 animate-fade-in relative z-20">
@@ -30,6 +31,7 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
                   <h2 className="font-display text-2xl text-white font-bold">Round Summary</h2>
                   <button onClick={() => setShowSummary(false)} className="text-gold font-bold uppercase text-sm border border-gold px-3 py-1 rounded hover:bg-gold hover:text-black transition-colors">Back to Recap</button>
               </div>
+              {/* Pass null history for mid-game recap to keep it simple, or could pass full history if App.tsx updated */}
               <PostGameSummary 
                 tributes={allTributes} 
                 winner={winner} 
@@ -66,7 +68,6 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
                 <div className={`w-20 h-20 rounded-full grayscale brightness-50 contrast-125 border-2 ${selectedId === t.id ? 'border-gold' : 'border-gray-700 group-hover:border-blood'} bg-gray-800 flex items-center justify-center overflow-hidden transition-all`}>
                      <svg className="w-10 h-10 text-gray-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                 </div>
-                {/* X Mark */}
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="w-full h-0.5 bg-blood absolute rotate-45"></div>
                     <div className="w-full h-0.5 bg-blood absolute -rotate-45"></div>
@@ -75,7 +76,6 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
             <span className="font-bold text-gray-400 text-sm text-center leading-tight">{t.name}</span>
             <span className="text-[10px] text-gray-600 font-mono uppercase mt-1">District {t.district}</span>
             
-            {/* Detail Popup */}
             {selectedId === t.id && (
                 <div className="absolute z-[100] bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-blood text-white text-xs p-3 rounded min-w-[200px] w-64 text-center shadow-xl whitespace-normal">
                     <div className="font-bold text-blood uppercase mb-1">Cause of Death</div>

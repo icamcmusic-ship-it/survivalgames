@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GameState, TributeStatus, WeatherType } from './types';
+import { GameState, TributeStatus, Tribute, EventType } from './types';
 import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds } from './services/gameLogic';
 import { TributeCard } from './components/TributeCard';
 import { GameLog } from './components/GameLog';
@@ -28,7 +29,7 @@ const App: React.FC = () => {
     currentWeather: 'Clear',
     weatherDuration: 0,
     settings: {
-        gameSpeed: 1000, 
+        gameSpeed: 1500, 
         fatalityRate: 1.0,
         enableWeather: true
     }
@@ -36,769 +37,263 @@ const App: React.FC = () => {
 
   const [sponsorMode, setSponsorMode] = useState(false);
   const [showAliveOnly, setShowAliveOnly] = useState(false);
-  const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showRelationships, setShowRelationships] = useState(false);
   const [showMap, setShowMap] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [selectedTributeId, setSelectedTributeId] = useState<string | null>(null);
-  const [viewingPostGame, setViewingPostGame] = useState(false);
+  const [roundDeaths, setRoundDeaths] = useState<Tribute[]>([]);
+  const [pendingPhase, setPendingPhase] = useState<GameState['phase'] | null>(null);
+  
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load Settings & Data
-  useEffect(() => {
-      const savedSettings = localStorage.getItem('br_settings');
-      const savedPoints = localStorage.getItem('br_sponsorPoints');
-      const savedBet = localStorage.getItem('br_userBet');
-
-      if (savedSettings) {
-          setGameState(prev => ({ ...prev, settings: JSON.parse(savedSettings) }));
-      }
-      if (savedPoints) {
-          setGameState(prev => ({ ...prev, sponsorPoints: parseInt(savedPoints) }));
-      }
-      if (savedBet) {
-          setGameState(prev => ({ ...prev, userBet: savedBet }));
-      }
-  }, []);
-
-  // Save Settings
-  useEffect(() => {
-      localStorage.setItem('br_settings', JSON.stringify(gameState.settings));
-  }, [gameState.settings]);
-
-  // Fix #15: Persist Funds & Bet
-  useEffect(() => {
-      localStorage.setItem('br_sponsorPoints', gameState.sponsorPoints.toString());
-      if (gameState.userBet) {
-          localStorage.setItem('br_userBet', gameState.userBet);
-      } else {
-          localStorage.removeItem('br_userBet');
-      }
-  }, [gameState.sponsorPoints, gameState.userBet]);
-
-  // Initialize tributes only on mount if empty
   useEffect(() => {
     if (gameState.tributes.length === 0) {
         setGameState(prev => ({ ...prev, tributes: generateTributes() }));
     }
   }, []);
 
-  // --- Auto-Play Loop ---
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const triggerNextPhase = () => {
-      advancePhase();
-  };
-
-  useEffect(() => {
-    if (gameState.isAutoPlaying && gameState.phase !== 'Winner' && gameState.phase !== 'Setup' && gameState.phase !== 'Reaping') {
-        // Prevent stacking timers
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(triggerNextPhase, gameState.settings.gameSpeed);
-    } else {
-        if (timerRef.current) clearTimeout(timerRef.current);
-    }
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [gameState.isAutoPlaying, gameState.phase, gameState.day, gameState.settings.gameSpeed, gameState.logs.length]); 
-
-  // --- Game Logic Controls ---
-
-  const advancePhase = useCallback(() => {
+  const runGameStep = useCallback(() => {
     setGameState(prev => {
-        const currentAlive = prev.tributes.filter(t => t.status === TributeStatus.Alive);
+      // Game Over Check
+      const aliveCount = prev.tributes.filter(t => t.status === TributeStatus.Alive).length;
+      if (aliveCount <= 1 && prev.phase !== 'Setup' && prev.phase !== 'Reaping' && prev.phase !== 'Training') {
+         return { ...prev, phase: 'Winner', gameRunning: false };
+      }
 
-        // Winner Check: 1 or 0 alive (simultaneous death)
-        if ((currentAlive.length <= 1) && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
-          let extraLogs = [];
-          let pointsAwarded = 0;
-          
-          // If 0 alive, the winner is the last person added to fallen tributes (closest to winning)
-          const winner = currentAlive.length === 1 ? currentAlive[0] : prev.fallenTributes[prev.fallenTributes.length - 1];
-
-          if (!winner) {
-               // Should not happen unless game is empty
-               return prev; 
-          }
-
-          if (prev.userBet) {
-              if (winner.id === prev.userBet) {
-                  pointsAwarded = 500;
-                  extraLogs.push({
-                      id: `bet-win-${crypto.randomUUID()}`,
-                      text: `<span class="text-gold font-bold text-lg">BET WON!</span> You placed your faith in the right tribute. +500 Funds.`,
-                      type: 'Winner' as any,
-                      relatedTributeIds: [winner.id]
-                  });
-              }
-          }
-          
+      // Reaping to Training
+      if (prev.phase === 'Reaping') {
           return { 
-              ...prev, 
-              phase: 'Winner', 
-              isAutoPlaying: false,
-              sponsorPoints: prev.sponsorPoints + pointsAwarded,
-              logs: [...prev.logs, ...extraLogs]
+            ...prev, 
+            phase: 'Training', 
+            logs: [...prev.logs, { id: 'reaping', text: 'The Tributes have been reaped. Let the training begin!', type: EventType.Reaping, day: 0, phase: 'Reaping' }] 
           };
-        }
+      }
 
-        let nextPhase = prev.phase;
-        let nextDay = prev.day;
-        let showFallen = false;
-        let isTrainingStep = false;
+      // Training to Bloodbath
+      if (prev.phase === 'Training') {
+          const { updatedTributes, logs } = simulateTraining(prev.tributes);
+          const withOdds = recalculateAllOdds(updatedTributes);
+          
+          // Archive Training logs
+          const trainingHistory = { phase: 'Training', day: 0, logs: logs };
 
-        switch (prev.phase) {
-          case 'Setup':
-            nextPhase = 'Reaping';
-            break;
-          case 'Reaping':
-            nextPhase = 'Training';
-            nextDay = 1; 
-            break;
-          case 'Training':
-             if (prev.day < 3) {
-                 isTrainingStep = true;
-                 nextDay = prev.day + 1;
-             } else {
-                 nextPhase = 'Bloodbath';
-                 nextDay = 1;
-             }
-             break;
-          case 'Bloodbath':
-            showFallen = true;
-            nextPhase = 'Day'; 
-            break;
-          case 'Fallen':
-            const lastHistory = prev.history[prev.history.length - 1];
-            const lastPhaseType = lastHistory ? lastHistory.phase : 'Bloodbath';
-            if (lastPhaseType === 'Bloodbath' || lastPhaseType === 'Night') {
-                 nextPhase = 'Day';
-                 nextDay = prev.day + (lastPhaseType === 'Night' ? 1 : 0);
-            } else {
-                 nextPhase = 'Night';
-            }
-            break;
-          case 'Day':
-            showFallen = true;
-            break;
-          case 'Night':
-            showFallen = true;
-            break;
-        }
+          return {
+             ...prev,
+             tributes: withOdds,
+             phase: 'Bloodbath',
+             day: 1,
+             logs: [...prev.logs, ...logs],
+             history: [...prev.history, trainingHistory],
+             daysSinceLastDeath: 0
+          };
+      }
 
-        if (showFallen) {
-           const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }];
-           return {
-               ...prev,
-               history: newHistory,
-               phase: 'Fallen'
-           };
-        }
+      // Main Simulation Phases
+      let nextPhase = prev.phase;
+      let nextDay = prev.day;
+      
+      if (prev.phase === 'Bloodbath') {
+          nextPhase = 'Day';
+      } else if (prev.phase === 'Day') {
+          nextPhase = 'Night';
+      } else if (prev.phase === 'Night') {
+          nextPhase = 'Day';
+          nextDay += 1;
+      }
 
-        if (prev.phase === 'Training' && isTrainingStep) {
-             const simResult = simulateTraining(prev.tributes);
-             return {
-                 ...prev,
-                 day: nextDay,
-                 tributes: simResult.updatedTributes,
-                 logs: [...prev.logs, ...simResult.logs]
-             };
-        }
+      const res = simulatePhase(
+          prev.tributes, 
+          prev.phase as 'Bloodbath' | 'Day' | 'Night',
+          prev.daysSinceLastDeath,
+          prev.day,
+          prev.minDays,
+          prev.maxDays,
+          prev.currentWeather,
+          prev.settings.fatalityRate,
+          prev.settings.enableWeather
+      );
 
-        // Transition from Training -> Bloodbath
-        if (prev.phase === 'Training' && nextPhase === 'Bloodbath') {
-            const updatedTributes = recalculateAllOdds(prev.tributes);
-            const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }];
-            
-            return {
-                ...prev,
-                tributes: updatedTributes,
-                phase: 'Bloodbath',
-                day: 1,
-                history: newHistory,
-                logs: [],
-                currentWeather: 'Clear',
-                weatherDuration: 3
-            };
-        }
-
-        // Weather Logic
-        let nextWeather = prev.currentWeather;
-        let nextDuration = prev.weatherDuration;
-
-        if (prev.settings.enableWeather && nextPhase === 'Day') {
-             if (prev.weatherDuration > 0) {
-                 nextDuration = prev.weatherDuration - 1;
-             } else {
-                 // Reroll Weather
-                 const rand = Math.random();
-                 if (rand < 0.5) {
-                     nextWeather = 'Clear';
-                     nextDuration = 2;
-                 } else {
-                     const weathers: WeatherType[] = ['Rain', 'Heatwave', 'Fog', 'Storm'];
-                     nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
-                     nextDuration = Math.floor(Math.random() * 2) + 1; // 1-2 days of bad weather
-                 }
-             }
-        }
-
-        // Run Simulation
-        let result = {
-            updatedTributes: prev.tributes,
-            logs: [] as any[],
-            fallen: [] as any[],
-            deathsInPhase: 0
-        };
-
-        if (['Bloodbath', 'Day', 'Night'].includes(nextPhase)) {
-            result = simulatePhase(
-                prev.tributes, 
-                nextPhase as any, 
-                prev.daysSinceLastDeath,
-                nextDay,
-                prev.minDays,
-                prev.maxDays,
-                nextWeather, 
-                prev.settings.fatalityRate,
-                prev.settings.enableWeather
-            );
-        }
-
-        let newHistory = [...prev.history];
-        
-        if (nextWeather !== prev.currentWeather && nextPhase === 'Day') {
-            result.logs.unshift({
-                id: `weather-${crypto.randomUUID()}`,
-                text: `<span class="text-blue-300 font-bold uppercase">WEATHER UPDATE:</span> The arena is shifting. ${nextWeather} conditions detected.`,
-                type: 'Day' as any
-            });
-        }
-        
-        const newDaysSinceLastDeath = result.deathsInPhase > 0 
-            ? 0 
-            : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0);
-
-        return {
-          ...prev,
-          tributes: result.updatedTributes,
-          phase: nextPhase as any,
-          day: nextDay,
-          logs: result.logs,
-          history: newHistory,
-          fallenTributes: [...prev.fallenTributes, ...result.fallen],
-          totalEvents: prev.totalEvents + result.logs.length,
-          daysSinceLastDeath: newDaysSinceLastDeath,
-          sponsorPoints: prev.sponsorPoints + 25,
-          currentWeather: nextWeather,
-          weatherDuration: nextDuration
-        };
+      const newState = { ...prev };
+      newState.tributes = res.updatedTributes;
+      newState.logs = [...prev.logs, ...res.logs]; 
+      
+      // Save to History immediately so Timeline has it
+      newState.history = [...prev.history, { phase: prev.phase, day: prev.day, logs: res.logs }];
+      
+      if (res.deathsInPhase > 0) {
+          newState.daysSinceLastDeath = 0;
+          newState.fallenTributes = [...prev.fallenTributes, ...res.fallen];
+          
+          // Interrupt
+          setRoundDeaths(res.fallen);
+          setPendingPhase(nextPhase);
+          newState.phase = 'Fallen';
+          newState.gameRunning = false;
+          if (nextPhase === 'Day' && prev.phase === 'Night') newState.day = nextDay;
+          
+          return newState;
+      } else {
+          newState.daysSinceLastDeath += 1;
+          newState.phase = nextPhase;
+          newState.day = nextDay;
+      }
+      
+      newState.totalEvents += res.logs.length;
+      return newState;
     });
   }, []);
 
+  useEffect(() => {
+    if (gameState.gameRunning && gameState.phase !== 'Setup' && gameState.phase !== 'Winner' && gameState.phase !== 'Fallen') {
+        timerRef.current = setTimeout(runGameStep, gameState.settings.gameSpeed);
+    }
+    return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [gameState.gameRunning, gameState.phase, runGameStep, gameState.settings.gameSpeed]);
 
-  const handleRestart = () => {
-    setGameState(prev => ({
-        tributes: generateTributes(),
-        day: 0,
-        phase: 'Setup',
-        logs: [],
-        history: [],
-        fallenTributes: [],
-        totalEvents: 0,
-        gameRunning: false,
-        daysSinceLastDeath: 0,
-        sponsorPoints: prev.sponsorPoints, // Keep points (Fix #15)
-        userBet: null,
-        minDays: 5,
-        maxDays: 10,
-        isAutoPlaying: false,
-        currentWeather: 'Clear', 
-        weatherDuration: 0,
-        settings: { ...prev.settings }
-    }));
-    setSponsorMode(false);
-    setSelectedTributeId(null);
-    setViewingPostGame(false);
+  const handleResume = () => {
+      if (gameState.phase === 'Fallen' && pendingPhase) {
+          const nextPhase = pendingPhase;
+          setGameState(prev => ({ ...prev, phase: nextPhase, gameRunning: true }));
+          setRoundDeaths([]);
+          setPendingPhase(null);
+      } else {
+          setGameState(prev => ({ ...prev, gameRunning: true }));
+      }
   };
 
-  const handleSponsor = (tributeId: string) => {
-      if (gameState.sponsorPoints < 25) return;
-      
-      setGameState(prev => {
-          const target = prev.tributes.find(t => t.id === tributeId);
-          // Let card handle shaking
-          if (target && target.inventory.length >= 4) return prev;
-          if (!target || target.status === TributeStatus.Dead) return prev;
-
-          // Smart Sponsor Logic
-          let item = 'Water';
-          const r = Math.random();
-          
-          if (target.stats.hunger > 50) {
-             item = r < 0.7 ? 'Bread' : 'Food';
-          } else if (target.stats.health < 60) {
-             item = r < 0.6 ? 'Bandages' : 'First Aid Kit';
-          } else if (target.stats.sanity < 40) {
-             item = 'Note from Home'; // Flavor item, logic treats strings generically
-          } else if (target.stats.exhaustion > 50) {
-             item = 'Energy Gel';
-          } else {
-             const weapons = ['Spear', 'Knife', 'Backpack', 'Antidote'];
-             item = weapons[Math.floor(Math.random() * weapons.length)];
-          }
-          
-          if (item === 'Note from Home') {
-             // Special effect: Sanity boost only, no item
-             const updatedTributes = prev.tributes.map(t => {
-                  if (t.id === tributeId) {
-                       return { ...t, stats: { ...t.stats, sanity: Math.min(100, t.stats.sanity + 30) } };
-                  }
-                  return t;
-             });
-             return {
-                  ...prev,
-                  tributes: updatedTributes,
-                  sponsorPoints: prev.sponsorPoints - 25,
-                  logs: [...prev.logs, {
-                      id: `sponsor-${crypto.randomUUID()}`,
-                      text: `<span class="text-blue-400 font-bold">SPONSOR:</span> <span class="text-gold">${target.name}</span> receives a note from home, restoring their resolve.`,
-                      type: prev.phase as any,
-                      relatedTributeIds: [target.id]
-                  }]
-             };
-          }
-
-          const updatedTributes = prev.tributes.map(t => {
-              if (t.id === tributeId) {
-                   return {
-                       ...t,
-                       inventory: [...t.inventory, item],
-                       stats: { 
-                           ...t.stats, 
-                           sanity: Math.min(100, t.stats.sanity + 10), 
-                           hunger: Math.max(0, t.stats.hunger - 10) 
-                       }
-                   };
-              }
-              return t;
-          });
-          
-          const newLog = {
-              id: `sponsor-${crypto.randomUUID()}`,
-              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers <span class="text-white">${item}</span> to <span class="text-gold">${target?.name}</span>.`,
-              type: prev.phase === 'Bloodbath' ? 'Bloodbath' : (prev.phase === 'Night' ? 'Night' : 'Day') as any,
-              relatedTributeIds: [target!.id]
-          };
-
-          return {
-              ...prev,
-              tributes: updatedTributes,
-              sponsorPoints: prev.sponsorPoints - 25,
-              logs: [...prev.logs, newLog] 
-          };
-      });
-  };
-
-  const handleModifyAttributes = (tributeId: string, attr: 'health' | 'weaponSkill', amount: number) => {
-      setGameState(prev => {
-          const updated = prev.tributes.map(t => {
-              if (t.id === tributeId) {
-                  const newVal = Math.max(0, Math.min(100, t.stats[attr] + amount));
-                  return { ...t, stats: { ...t.stats, [attr]: newVal } };
-              }
-              return t;
-          });
-          // Fix #6: Recalculate odds to prevent stale state
-          const withOdds = recalculateAllOdds(updated);
-          return { ...prev, tributes: withOdds };
-      });
-  };
-
-  const triggerArenaEvent = (type: string, cost: number) => {
-      if (gameState.sponsorPoints < cost) return;
-      let text = '';
-      if (type === 'Rain') text = "The Gamemakers have triggered a torrential downpour.";
-      if (type === 'Feast') text = "The Gamemakers have prepared a Feast.";
-      if (type === 'Mutts') text = "Wolf Mutts have been released into the arena!";
-      if (type === 'Resurrect') text = "MIRACLE: A tribute claws their way back from the grave!";
-      
-      setGameState(prev => {
-          let updatedTributes = [...prev.tributes];
-          let newFallen = [...prev.fallenTributes];
-          let deathLogs: any[] = [];
-
-          if (type === 'Resurrect') {
-               const dead = updatedTributes.filter(t => t.status === TributeStatus.Dead);
-               if (dead.length > 0) {
-                   const lucky = dead[Math.floor(Math.random() * dead.length)];
-                   
-                   updatedTributes = updatedTributes.map(t => {
-                       if (t.id === lucky.id) {
-                           return {
-                               ...t,
-                               status: TributeStatus.Alive,
-                               stats: { ...t.stats, health: 50 },
-                               deathCause: undefined
-                           };
-                       }
-                       return t;
-                   });
-
-                   text = `MIRACLE: <span class="text-gold font-bold">${lucky.name}</span> claws their way back from the grave!`;
-                   // Fix #1: Remove from fallen tributes
-                   newFallen = newFallen.filter(t => t.id !== lucky.id);
-               } else {
-                   text = "Resurrection failed: No bodies found.";
-               }
-          }
-
-          // Fix #2: Actual Mutts Logic
-          if (type === 'Mutts') {
-              updatedTributes = updatedTributes.map(t => {
-                  if (t.status === TributeStatus.Alive) {
-                      // Apply damage
-                      const damage = 35;
-                      const newHealth = t.stats.health - damage;
-                      
-                      if (newHealth <= 0) {
-                           newFallen.push({ ...t, status: TributeStatus.Dead, stats: { ...t.stats, health: 0 }, deathCause: "Mauled by Mutts" });
-                           deathLogs.push({
-                               id: `mutt-kill-${t.id}`,
-                               text: `<span class="text-blood font-bold">${t.name}</span> was torn apart by the mutts.`,
-                               type: 'Arena' as any,
-                               deathNames: [t.name],
-                               relatedTributeIds: [t.id]
-                           });
-                           return { ...t, status: TributeStatus.Dead, stats: { ...t.stats, health: 0 }, deathCause: "Mauled by Mutts" };
-                      } else {
-                           return { ...t, stats: { ...t.stats, health: newHealth } };
-                      }
+  const handleSponsor = (id: string) => {
+      if (gameState.sponsorPoints >= 25) {
+          setGameState(prev => {
+              const updated = prev.tributes.map(t => {
+                  if (t.id === id) {
+                      const items = ['Food', 'Water', 'Medicine', 'Bandages'];
+                      const item = items[Math.floor(Math.random() * items.length)];
+                      return { ...t, inventory: [...t.inventory, item] };
                   }
                   return t;
               });
-          }
-
-          return {
-            ...prev,
-            tributes: updatedTributes,
-            sponsorPoints: prev.sponsorPoints - cost,
-            logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }, ...deathLogs],
-            currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather,
-            fallenTributes: newFallen
-          };
-      });
+              return { 
+                  ...prev, 
+                  tributes: updated, 
+                  sponsorPoints: prev.sponsorPoints - 25,
+                  logs: [...prev.logs, { id: crypto.randomUUID(), text: `A silver parachute brings a gift to the arena.`, type: EventType.Day, day: prev.day, phase: prev.phase }]
+               };
+          });
+      }
   };
 
-  const handleBet = (id: string) => {
-      setGameState(prev => ({ ...prev, userBet: id }));
-  };
-
-  // --- View Helpers ---
-  const aliveCount = gameState.tributes.filter(t => t.status === TributeStatus.Alive).length;
-  const deadCount = gameState.tributes.length - aliveCount;
-  const displayedTributes = showAliveOnly 
-    ? gameState.tributes.filter(t => t.status === TributeStatus.Alive)
-    : gameState.tributes;
+  const activeTributes = showAliveOnly 
+      ? gameState.tributes.filter(t => t.status === TributeStatus.Alive)
+      : gameState.tributes;
 
   return (
-    <div className="h-screen flex flex-col bg-gamemaker font-sans overflow-hidden selection:bg-gold selection:text-black">
-        
+    <div className="min-h-screen bg-gray-900 text-gray-200 font-sans selection:bg-gold selection:text-black">
+        {/* Setup Screen */}
+        {gameState.phase === 'Setup' && (
+            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-6">
+                <h1 className="font-display text-6xl text-gold font-bold mb-8 tracking-widest uppercase">Battle Royale</h1>
+                <div className="flex gap-4">
+                    <button onClick={() => setGameState(p => ({...p, phase: 'Reaping', gameRunning: true}))} className="bg-gold text-black px-8 py-3 rounded font-bold uppercase hover:scale-105 transition-transform">Start Simulation</button>
+                    <button onClick={() => setGameState(p => ({...p, tributes: generateTributes()}))} className="border border-gray-600 px-8 py-3 rounded font-bold uppercase hover:bg-gray-800">Reroll Tributes</button>
+                </div>
+            </div>
+        )}
+
         {/* Modals */}
+        {gameState.phase === 'Fallen' && (
+            <div className="fixed inset-0 z-40 bg-black/90">
+                <DeathRecap fallen={roundDeaths} allTributes={gameState.tributes} onNext={handleResume} />
+            </div>
+        )}
+
+        {gameState.phase === 'Winner' && (
+             <StatsModal 
+                winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.fallenTributes[gameState.fallenTributes.length - 1]} 
+                duration={gameState.day}
+                tributes={gameState.tributes}
+                history={gameState.history}
+                onRestart={() => window.location.reload()} 
+             />
+        )}
+        
         {showRelationships && <RelationshipGrid tributes={gameState.tributes} onClose={() => setShowRelationships(false)} />}
         {showMap && <MapModal tributes={gameState.tributes} onClose={() => setShowMap(false)} />}
-        
-        {showSettings && (
-            <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-                 <div className="bg-panel border border-gray-600 rounded-xl w-full max-w-md p-6">
-                     <h3 className="text-gold font-bold uppercase mb-4">Settings</h3>
-                     <div className="space-y-4">
-                         <div>
-                             <label className="text-xs uppercase text-gray-500 mb-1 block">Game Speed (ms)</label>
-                             <input 
-                                type="range" min="100" max="2000" step="100" 
-                                value={gameState.settings.gameSpeed}
-                                onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, gameSpeed: parseInt(e.target.value)}}))}
-                                className="w-full accent-gold"
-                             />
-                             <div className="text-right text-xs text-gray-300">{gameState.settings.gameSpeed}ms</div>
-                         </div>
-                     </div>
-                     <button onClick={() => setShowSettings(false)} className="mt-6 w-full py-2 bg-gray-800 text-white rounded">Close</button>
-                 </div>
-            </div>
-        )}
-
-        {showHowToPlay && (
-            <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-                <div className="bg-panel border border-gold rounded-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
-                    <h2 className="font-display text-2xl text-gold mb-4 uppercase font-bold">Training Guide</h2>
-                    <div className="space-y-4 text-gray-300 text-sm font-mono">
-                        <p>Welcome to the Battle Royale Simulator v3.3.</p>
-                        <ul className="list-disc pl-5 space-y-2">
-                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds! Odds update after Training. Bets and Funds persist between sessions.</li>
-                            <li><strong className="text-white">Map System:</strong> Tributes move on a Hex grid. They must be adjacent to interact.</li>
-                            <li><strong className="text-white">God Mode:</strong> During the "Reaping/Setup" phase, use the +/- buttons on cards to modify stats.</li>
-                            <li><strong className="text-white">Filtering:</strong> Click a tribute card during the game to filter the Game Log for their events.</li>
-                            <li><strong className="text-white">Bloodbath:</strong> The start is now extremely lethal. 60% of events are fatal.</li>
-                        </ul>
-                        <button onClick={() => setShowHowToPlay(false)} className="mt-6 w-full py-2 bg-gray-800 hover:bg-gold hover:text-black font-bold uppercase rounded transition-colors">Close Guide</button>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* Setup Phase */}
-        {gameState.phase === 'Setup' && (
-             <div className="fixed inset-0 z-40 bg-gamemaker flex flex-col items-center justify-center p-4">
-                 <div className="max-w-7xl w-full h-full max-h-[95vh] bg-panel border border-gray-800 rounded-2xl p-6 shadow-2xl animate-fade-in flex flex-col">
-                     <div className="flex justify-between items-center mb-6">
-                         <div>
-                            <h1 className="font-display text-4xl font-black text-white uppercase tracking-wider">The Reaping</h1>
-                            <p className="text-gray-500 font-mono text-sm">Configure Simulation - Modify Stats on Cards below</p>
-                         </div>
-                         <div className="flex gap-4">
-                             <div className="bg-gray-800 p-2 rounded border border-gray-700 text-xs flex gap-4">
-                                 <label className="flex items-center gap-2">
-                                     <span className="text-gray-400">Lethality</span>
-                                     <input 
-                                        type="range" min="0.5" max="2.0" step="0.1" 
-                                        value={gameState.settings.fatalityRate}
-                                        onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, fatalityRate: parseFloat(e.target.value)}}))}
-                                        className="accent-gold w-20"
-                                     />
-                                 </label>
-                             </div>
-                             <button onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))} className="px-4 py-2 border border-gold text-gold hover:bg-gold hover:text-black rounded text-xs uppercase font-bold transition-all">
-                                 Regenerate Tributes
-                             </button>
-                         </div>
-                     </div>
-                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6">
-                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
-                            {gameState.tributes.map(t => (
-                                <TributeCard 
-                                    key={t.id} 
-                                    tribute={t} 
-                                    sponsorMode={false}
-                                    isSetupPhase={true}
-                                    onModifyAttributes={handleModifyAttributes}
-                                />
-                            ))}
-                         </div>
-                     </div>
-                     <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping' }))} className="w-full py-3 bg-gold hover:bg-yellow-400 text-black font-display font-black text-lg uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all">
-                         Confirm Roster & Proceed to Betting
-                     </button>
-                 </div>
-             </div>
-        )}
 
         {/* Header */}
-        <header className="h-16 shrink-0 bg-panel border-b border-gray-800 flex items-center justify-between px-6 shadow-md z-20 relative">
-            <div className="flex items-center gap-4">
-                <div className="w-8 h-8 rounded-full bg-gold flex items-center justify-center">
-                     <svg className="w-5 h-5 text-black" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
-                </div>
-                <div>
-                    <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
-                    <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>{gameState.phase} {gameState.phase === 'Training' ? `Day ${gameState.day}` : (gameState.day > 0 ? `Day ${gameState.day}` : '')}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div className="flex items-center gap-8">
-                 <div className="hidden lg:flex items-center gap-4">
-                    <div className="text-center">
-                        <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Funds</div>
-                        <div className="font-display font-bold text-xl text-blue-400">{gameState.sponsorPoints}</div>
-                    </div>
-                    <button onClick={() => setSponsorMode(!sponsorMode)} className={`px-3 py-1 rounded border text-[10px] font-mono uppercase font-bold transition-all ${sponsorMode ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-gray-900/50 border-gray-700 text-gray-500'}`}>
-                        {sponsorMode ? 'Sponsor: ON' : 'Sponsor: OFF'}
-                    </button>
-                    <button onClick={() => setShowMap(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
-                        Map
-                    </button>
-                    <button onClick={() => setShowRelationships(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
-                        Intel
-                    </button>
-                    <button onClick={() => setShowHowToPlay(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
-                        Help
-                    </button>
+        <header className="fixed top-0 left-0 right-0 h-16 bg-panel border-b border-gray-800 flex items-center justify-between px-6 z-30">
+             <div className="flex items-center gap-4">
+                 <h1 className="font-display text-xl text-white font-bold tracking-widest">HG SIM</h1>
+                 <div className="h-6 w-px bg-gray-700"></div>
+                 <div className="flex items-center gap-2 text-xs font-mono">
+                     <span className={gameState.gameRunning ? "text-green-500 animate-pulse" : "text-red-500"}>● {gameState.gameRunning ? "RUNNING" : "PAUSED"}</span>
+                     <span className="text-gray-500">Day {gameState.day} - {gameState.phase}</span>
+                     <span className="text-gray-500">Alive: {gameState.tributes.filter(t => t.status === TributeStatus.Alive).length}</span>
                  </div>
-                 <div className="w-px h-8 bg-gray-800 hidden lg:block"></div>
-                 <div className="text-center">
-                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Alive</div>
-                    <div className="font-display font-bold text-xl text-green-500">{aliveCount}</div>
+             </div>
+
+             <div className="flex items-center gap-3">
+                 <button onClick={() => setGameState(p => ({...p, gameRunning: !p.gameRunning}))} className="bg-gray-800 p-2 rounded hover:bg-gray-700 text-gold">
+                    {gameState.gameRunning ? (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                    ) : (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                    )}
+                 </button>
+                 <button onClick={() => setShowMap(true)} className="p-2 text-gray-400 hover:text-white" title="Map">
+                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
+                 </button>
+                 <button onClick={() => setShowRelationships(true)} className="p-2 text-gray-400 hover:text-white" title="Relationships">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+                 </button>
+                 <div className="h-6 w-px bg-gray-700"></div>
+                 <div className="flex items-center gap-1 bg-gray-800 px-3 py-1 rounded-full border border-gold/30">
+                     <span className="text-gold font-bold text-sm">{gameState.sponsorPoints}</span>
+                     <span className="text-[10px] text-gray-500 uppercase">CP</span>
                  </div>
-                 <div className="w-px h-8 bg-gray-800"></div>
-                 <div className="text-center">
-                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Fallen</div>
-                    <div className="font-display font-bold text-xl text-blood">{deadCount}</div>
-                 </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-                {gameState.phase === 'Reaping' && (
-                    <button 
-                        onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))}
-                        className="hidden md:flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gold text-gold rounded-full font-mono text-xs uppercase hover:bg-gold hover:text-black transition-all"
-                    >
-                        Regenerate Cast
-                    </button>
-                )}
-                
-                {gameState.day > 0 && (
-                    <button 
-                        onClick={handleRestart}
-                        className="p-2 text-red-500 hover:text-red-400 border border-red-900/30 bg-red-900/10 rounded-full"
-                        title="Force Restart"
-                    >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                    </button>
-                )}
-
-                <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-400 hover:text-white">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                </button>
-
-                {!['Winner', 'Setup', 'Reaping'].includes(gameState.phase) && (
-                     <button 
-                        onClick={() => setGameState(prev => ({ ...prev, isAutoPlaying: !prev.isAutoPlaying }))}
-                        className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all border ${gameState.isAutoPlaying ? 'bg-red-900/50 border-red-500 text-red-200' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
-                     >
-                         {gameState.isAutoPlaying ? '■ Stop' : '▶ Auto'}
-                     </button>
-                )}
-
-                <button 
-                    onClick={advancePhase}
-                    disabled={gameState.phase === 'Winner' || gameState.phase === 'Setup'}
-                    className={`hidden md:flex items-center gap-2 px-6 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all ${gameState.phase === 'Winner' || gameState.phase === 'Setup' ? 'bg-gray-800 text-gray-600 cursor-not-allowed' : 'bg-white text-black hover:bg-gold'}`}
-                >
-                    {gameState.phase === 'Reaping' ? 'Start Training' : (gameState.phase === 'Training' && gameState.day >= 3 ? 'Start Bloodbath' : 'Proceed')}
-                </button>
-            </div>
+                 <button onClick={() => setSponsorMode(!sponsorMode)} className={`p-2 rounded ${sponsorMode ? 'bg-gold text-black' : 'text-gray-400 hover:text-white'}`}>
+                     Gift
+                 </button>
+             </div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 flex overflow-hidden relative">
-            <div className="absolute inset-0 opacity-5 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
-            
-            {gameState.phase === 'Day' && gameState.currentWeather === 'Rain' && <div className="absolute inset-0 pointer-events-none bg-blue-900/10 z-0 animate-pulse-slow"></div>}
-            
-            {gameState.phase === 'Winner' && !viewingPostGame && (
-                <div className="w-full h-full flex flex-col items-center justify-center z-20">
-                    <StatsModal 
-                        winner={
-                            gameState.tributes.find(t => t.status === TributeStatus.Alive) || 
-                            gameState.fallenTributes[gameState.fallenTributes.length - 1] ||
-                            gameState.tributes[0]
-                        } 
-                        duration={gameState.day} 
-                        tributes={gameState.tributes}
-                        history={gameState.history}
-                        onRestart={handleRestart}
-                        onClose={() => setViewingPostGame(true)} // Fix #13
-                    />
-                </div>
-            )}
-            
-            {/* Winner view when modal is closed */}
-            {gameState.phase === 'Winner' && viewingPostGame && (
-                <div className="absolute top-24 left-1/2 -translate-x-1/2 z-30">
-                    <button onClick={handleRestart} className="bg-gold text-black font-bold px-8 py-3 rounded shadow-lg">START NEW GAME</button>
-                </div>
-            )}
-
-            {gameState.phase === 'Fallen' ? (
-                 <div className="w-full flex-1 relative z-10">
-                    <DeathRecap 
-                        fallen={gameState.fallenTributes} 
-                        allTributes={gameState.tributes}
-                        onNext={advancePhase} 
-                    />
-                 </div>
-            ) : (
-                <div className="w-full h-full flex flex-col lg:flex-row gap-6 p-6 relative z-10">
-                    {/* Tributes Grid */}
-                    <div className="flex-1 lg:flex-[2] flex flex-col min-h-0">
-                        <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
-                             <div className="flex items-center gap-4">
-                                 <h2 className="font-display text-white text-xl font-bold">
-                                     {gameState.phase === 'Reaping' ? 'Place Your Bets' : 'Tributes'}
-                                 </h2>
-                                 {gameState.userBet && (
-                                     <span className="text-xs font-mono text-gold border border-gold/30 rounded px-2 py-1">
-                                         Bet Placed on: {gameState.tributes.find(t => t.id === gameState.userBet)?.name}
-                                     </span>
-                                 )}
-                                 {selectedTributeId && (
-                                     <button onClick={() => setSelectedTributeId(null)} className="text-xs font-mono text-red-400 border border-red-900/50 rounded px-2 py-1 hover:bg-red-900/20">
-                                         Clear Filter ({gameState.tributes.find(t => t.id === selectedTributeId)?.name})
-                                     </button>
-                                 )}
-                             </div>
-                             <div className="flex items-center gap-2">
-                                <button onClick={() => setShowAliveOnly(!showAliveOnly)} className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${showAliveOnly ? 'bg-green-900 border-green-600 text-green-100' : 'bg-transparent border-gray-700 text-gray-500'}`}>
-                                    {showAliveOnly ? 'Alive Only' : 'Show All'}
-                                </button>
-                             </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3 pb-4">
-                                {displayedTributes.map(t => (
-                                <TributeCard 
-                                    key={t.id} 
-                                    tribute={t} 
-                                    onSponsor={handleSponsor}
-                                    onBet={handleBet}
-                                    onSelect={(id) => setSelectedTributeId(selectedTributeId === id ? null : id)}
-                                    isSelected={selectedTributeId === t.id}
-                                    canSponsor={gameState.sponsorPoints >= 25 && t.status === TributeStatus.Alive}
-                                    sponsorMode={sponsorMode}
-                                    showOdds={gameState.phase === 'Reaping' || gameState.phase === 'Training'}
-                                    isUserBet={gameState.userBet === t.id}
-                                />
-                                ))}
-                            </div>
-                        </div>
-                        
-                        {sponsorMode && (
-                            <div className="mt-4 p-4 bg-gray-900/80 border border-blue-900 rounded-xl animate-fade-in">
-                                <div className="text-[10px] font-mono uppercase text-blue-400 font-bold mb-2">Gamemaker Console</div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => triggerArenaEvent('Rain', 50)} className="px-3 py-2 bg-blue-900/30 border border-blue-800 rounded text-xs text-blue-200 hover:bg-blue-800">Trigger Rain (50)</button>
-                                    <button onClick={() => triggerArenaEvent('Mutts', 200)} className="px-3 py-2 bg-red-900/30 border border-red-800 rounded text-xs text-red-200 hover:bg-red-800">Release Mutts (200)</button>
-                                    <button onClick={() => triggerArenaEvent('Resurrect', 500)} className="px-3 py-2 bg-purple-900/30 border border-purple-800 rounded text-xs text-purple-200 hover:bg-purple-800">Miracle (500)</button>
-                                </div>
-                            </div>
-                        )}
+        <div className="pt-20 pb-4 px-4 h-screen flex gap-4">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className="flex justify-between items-center mb-4">
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowAliveOnly(false)} className={`px-3 py-1 text-xs font-bold rounded ${!showAliveOnly ? 'bg-gray-700 text-white' : 'text-gray-500'}`}>ALL</button>
+                        <button onClick={() => setShowAliveOnly(true)} className={`px-3 py-1 text-xs font-bold rounded ${showAliveOnly ? 'bg-gray-700 text-white' : 'text-gray-500'}`}>ALIVE</button>
                     </div>
-
-                    {/* Logs */}
-                    <div className="h-[40vh] lg:h-auto lg:flex-1 flex flex-col min-h-0">
-                        <GameLog 
-                            logs={gameState.logs} 
-                            phase={gameState.phase} 
-                            day={gameState.day}
-                            history={gameState.history}
-                            selectedTributeId={selectedTributeId}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {activeTributes.map(t => (
+                        <TributeCard 
+                            key={t.id} 
+                            tribute={t} 
+                            sponsorMode={sponsorMode}
+                            canSponsor={gameState.sponsorPoints >= 25}
+                            onSponsor={handleSponsor}
+                            isUserBet={gameState.userBet === t.id}
+                            onSelect={setSelectedTributeId}
+                            isSelected={selectedTributeId === t.id}
+                            showOdds={true}
+                            onBet={(id) => setGameState(p => ({...p, userBet: id}))}
                         />
-                    </div>
-
-                    {/* Mobile FAB */}
-                    <button 
-                        onClick={advancePhase}
-                        disabled={gameState.phase === 'Winner'}
-                        className="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-gold rounded-full shadow-lg shadow-gold/40 flex items-center justify-center text-black z-50 active:scale-90 transition-transform"
-                    >
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-                    </button>
+                    ))}
                 </div>
-            )}
-        </main>
+            </div>
+
+            <div className="w-96 hidden md:flex flex-col gap-4">
+                <GameLog 
+                    logs={gameState.logs} 
+                    phase={gameState.phase} 
+                    day={gameState.day} 
+                    history={gameState.history}
+                    selectedTributeId={selectedTributeId}
+                />
+            </div>
+        </div>
     </div>
   );
 };
