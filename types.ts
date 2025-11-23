@@ -69,6 +69,7 @@ export interface GameEvent {
   traitRequired?: Trait[];  
   
   healthDamage?: number; 
+  movement?: boolean; // New: triggers coordinate update
 
   condition?: (actors: Tribute[]) => boolean;
 }

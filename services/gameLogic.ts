@@ -7,7 +7,7 @@ import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nigh
 const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton', 'Traumatized', 'Broken'];
 
 const ITEM_VALUES: Record<string, number> = {
-    'Explosives': 20, 'Gun': 18, 'Ammo': 8, 'Scythe': 16, 'Bow': 15, 'Arrows': 8, 'Sword': 15, 'Spear': 14, 'Trident': 14, 'Axe': 13, 'Knife': 12, 'Machete': 12, 'Antidote': 16, 'First Aid Kit': 10, 'Bandages': 10, 'Shield': 8, 'Molotov Components': 8, 'Shovel': 7, 'Bread': 6, 'Backpack': 5, 'Water': 5, 'Food': 4, 'Rope': 3, 'Wire': 3, 'Sheet Plastic': 2, 'Rock': 1, 'Stick': 0
+    'Explosives': 30, 'Gun': 25, 'Ammo': 10, 'Scythe': 20, 'Bow': 20, 'Arrows': 10, 'Sword': 18, 'Spear': 16, 'Trident': 16, 'Axe': 15, 'Knife': 12, 'Machete': 12, 'Antidote': 20, 'First Aid Kit': 15, 'Bandages': 10, 'Shield': 12, 'Molotov Components': 12, 'Shovel': 8, 'Bread': 6, 'Backpack': 5, 'Water': 5, 'Food': 4, 'Rope': 3, 'Wire': 3, 'Sheet Plastic': 2, 'Rock': 1, 'Stick': 0
 };
 
 // --- Initialization ---
@@ -93,8 +93,8 @@ export const generateTributes = (): Tribute[] => {
   tributes.forEach(t1 => {
       tributes.forEach(t2 => {
           if (t1.id === t2.id) return;
-          if (t1.allianceId && t1.allianceId === t2.allianceId) t1.relationships[t2.id] = 50;
-          else if (t1.district === t2.district) t1.relationships[t2.id] = 30;
+          if (t1.allianceId && t1.allianceId === t2.allianceId) t1.relationships[t2.id] = 60;
+          else if (t1.district === t2.district) t1.relationships[t2.id] = 40;
           else t1.relationships[t2.id] = 0;
       });
   });
@@ -108,6 +108,54 @@ const getDistance = (t1: Tribute, t2: Tribute): number => {
     const dq = t1.coordinates.q - t2.coordinates.q;
     const dr = t1.coordinates.r - t2.coordinates.r;
     return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) / 2;
+};
+
+const moveTribute = (t: Tribute, target?: {q: number, r: number}) => {
+    const directions = [
+        {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
+        {q: -1, r: 0}, {q: -1, r: 1}, {q: 0, r: 1}
+    ];
+    
+    // Boundary check (radius 5)
+    const isValid = (q: number, r: number) => Math.abs(q) <= 5 && Math.abs(r) <= 5 && Math.abs(q+r) <= 5;
+    
+    let bestDir = directions[Math.floor(Math.random() * directions.length)];
+
+    if (target) {
+        // Find direction that minimizes distance
+        let minDst = 999;
+        const currentDist = (Math.abs(t.coordinates.q - target.q) + Math.abs(t.coordinates.q + t.coordinates.r - (target.q + target.r)) + Math.abs(t.coordinates.r - target.r)) / 2;
+        
+        for (const d of directions) {
+             const nq = t.coordinates.q + d.q;
+             const nr = t.coordinates.r + d.r;
+             if (isValid(nq, nr)) {
+                 const dst = (Math.abs(nq - target.q) + Math.abs(nq + nr - (target.q + target.r)) + Math.abs(nr - target.r)) / 2;
+                 if (dst < minDst) {
+                     minDst = dst;
+                     bestDir = d;
+                 }
+             }
+        }
+    } else {
+        // Random wander but avoid walking off map
+        let attempts = 0;
+        while (!isValid(t.coordinates.q + bestDir.q, t.coordinates.r + bestDir.r) && attempts < 10) {
+            bestDir = directions[Math.floor(Math.random() * directions.length)];
+            attempts++;
+        }
+    }
+
+    t.coordinates.q += bestDir.q;
+    t.coordinates.r += bestDir.r;
+};
+
+const getWeaponPower = (t: Tribute): number => {
+    let power = 0;
+    t.inventory.forEach(item => {
+        power = Math.max(power, ITEM_VALUES[item] || 0);
+    });
+    return power;
 };
 
 const parseEventText = (text: string, actors: Tribute[], eventTags: string[] = []): string => {
@@ -164,6 +212,15 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
   // Context Multipliers
   if (event.fatalities || event.tags?.includes('Kill') || event.tags?.includes('Attack')) {
       score *= aggressionMultiplier;
+      
+      // Weapon Advantage
+      if (actors.length > 1) {
+          const p1Power = getWeaponPower(main);
+          const p2Power = getWeaponPower(actors[1]);
+          if (p1Power > p2Power + 5) score *= 2.0; // Significant advantage
+          if (p1Power < p2Power - 5) score *= 0.1; // Suicidal to attack
+      }
+
       if (main.traits.includes('Ruthless')) score *= 2.0;
       if (main.stats.sanity < 30) score *= 2.0;
       
@@ -171,7 +228,7 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
       if (actors.length > 1 && actors[1]) {
           const rel = main.relationships[actors[1].id] || 0;
           if (rel > 50 && main.stats.sanity > 30) score *= 0.01; // Don't kill friends unless crazy
-          if (rel < -20) score *= 2.0; // Prefer enemies
+          if (rel < -20) score *= 2.5; // Prefer enemies
       }
   }
 
@@ -189,8 +246,10 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
   if (event.tags?.includes('Sleep')) score *= (1 + main.stats.exhaustion / 25);
   if (event.tags?.includes('Heal') && main.stats.health < 60) score *= 3.0;
 
-  // Weather
+  // Weather Impact on Scoring
   if (weather === 'Rain' && event.tags?.includes('Shelter')) score *= 2.0;
+  if (weather === 'Storm' && event.tags?.includes('Travel')) score *= 0.5; // Less travel in storm
+  if (weather === 'Fog' && event.tags?.includes('Hunt')) score *= 0.5; // Hard to hunt in fog
   
   return score;
 };
@@ -273,15 +332,49 @@ export const simulatePhase = (
     tributesMap.forEach(t => {
         if (t.status === TributeStatus.Dead) return;
         
+        // Weather Damage
+        if (currentWeather === 'Storm' && phase === 'Day' && Math.random() < 0.1) {
+            t.stats.health -= 5; // Debris/Wind
+        }
+        if (currentWeather === 'Heatwave' && phase === 'Day') {
+            t.stats.hunger += 10; // Thirst simulated as hunger
+            if (Math.random() < 0.2) t.stats.exhaustion += 10;
+        }
+        if (currentWeather === 'Rain' && phase === 'Night' && Math.random() < 0.3) {
+            t.stats.health -= 2; // Hypothermia
+        }
+
         // Hunger & Exhaustion
-        t.stats.hunger += (Math.random() * 10 + 5) + (currentWeather === 'Heatwave' ? 5 : 0);
-        t.stats.exhaustion += (phase === 'Day' ? 10 : -20); // Recover at night
+        t.stats.hunger += (Math.random() * 8 + 4);
+        t.stats.exhaustion += (phase === 'Day' ? 8 : -25); // Recover at night
         
-        if (phase === 'Night' && t.stats.exhaustion < 0) {
-            t.stats.sanity += 5; // Good sleep helps sanity
-            t.stats.health += 5;
+        // Passive Recovery
+        if (phase === 'Night') {
+             if (t.stats.exhaustion < 0) {
+                 // Good sleep
+                 t.stats.sanity += 5;
+                 t.stats.health += 5;
+             }
+             if (t.stats.health < 100 && t.stats.hunger < 50 && t.inventory.includes('First Aid Kit')) {
+                 // Auto-use kit at night if injured
+                 t.stats.health += 30;
+                 const idx = t.inventory.indexOf('First Aid Kit');
+                 if (idx > -1) t.inventory.splice(idx, 1);
+                 logs.push({
+                     id: crypto.randomUUID(),
+                     text: `${t.name} uses a First Aid Kit to patch up wounds during the night.`,
+                     type: EventType.Night, day, phase, relatedTributeIds: [t.id]
+                 });
+             }
         }
         
+        // Inventory Cap (Drop random items if > 5)
+        if (t.inventory.length > 5) {
+            // Prefer keeping weapons/food
+            const dropIdx = Math.floor(Math.random() * t.inventory.length);
+            t.inventory.splice(dropIdx, 1);
+        }
+
         clampStats(t);
     });
   }
@@ -329,33 +422,45 @@ export const simulatePhase = (
       const group: Tribute[] = [actor];
       const maxGroupSize = Math.floor(Math.random() * 3) + 2; // 2 to 4
 
-      // 1. Try Alliance
+      // 1. Try Alliance (High priority if nearby)
       if (actor.allianceId) {
           const allies = queue
             .map(id => tributesMap.get(id)!)
-            .filter(t => t.allianceId === actor.allianceId && !processedThisTurn.has(t.id))
+            .filter(t => t.allianceId === actor.allianceId && !processedThisTurn.has(t.id) && getDistance(actor, t) <= 1)
             .slice(0, maxGroupSize - 1);
           allies.forEach(a => {
               group.push(a);
               processedThisTurn.add(a.id);
-              // Remove from queue
               const idx = queue.indexOf(a.id);
               if (idx > -1) queue.splice(idx, 1);
           });
       }
 
-      // 2. If still room, try Proximity/Random
+      // 2. Proximity Checking (Hex Grid Logic)
       if (group.length < maxGroupSize) {
           // Filter valid neighbors from queue
           const neighbors = queue
             .map(id => tributesMap.get(id)!)
-            .filter(t => !processedThisTurn.has(t.id) && getDistance(actor, t) <= 1);
+            .filter(t => !processedThisTurn.has(t.id));
           
-          // Sort neighbors by relationship (Friends or Enemies preferred over neutral)
-          neighbors.sort((a, b) => Math.abs(actor.relationships[b.id] || 0) - Math.abs(actor.relationships[a.id] || 0));
+          // Sort neighbors by actual distance + Relationship Bias
+          neighbors.sort((a, b) => {
+              const distA = getDistance(actor, a);
+              const distB = getDistance(actor, b);
+              // Closer is better
+              if (distA !== distB) return distA - distB;
+              // Relationship tie-breaker
+              return Math.abs(actor.relationships[b.id] || 0) - Math.abs(actor.relationships[a.id] || 0);
+          });
+          
+          // Only pick if distance <= 2 (Visibility range)
+          // Exception: Bloodbath (distance irrelevant)
+          const range = phase === 'Bloodbath' ? 999 : 2;
 
           while (group.length < maxGroupSize && neighbors.length > 0) {
               const neighbor = neighbors.shift()!;
+              if (getDistance(actor, neighbor) > range && Math.random() > 0.1) continue; // 10% chance to spot far away
+              
               group.push(neighbor);
               processedThisTurn.add(neighbor.id);
               const idx = queue.indexOf(neighbor.id);
@@ -366,9 +471,9 @@ export const simulatePhase = (
       processedThisTurn.add(actorId);
 
       // --- Event Selection ---
-      // Try to find an event for the current group size. If fails, pop a member and try smaller size.
       let chosenEvent: GameEvent | null = null;
       
+      // Retry loop for group downsizing
       while (group.length > 0 && !chosenEvent) {
           const possibleEvents = pool.filter(e => e.playerCount === group.length);
           
@@ -392,14 +497,12 @@ export const simulatePhase = (
           }
 
           if (!chosenEvent) {
-              // If no event found for this group size, remove the last added member (unless it's the actor)
-              // and return them to the queue (unless it's the actor)
               if (group.length > 1) {
                   const removed = group.pop()!;
                   processedThisTurn.delete(removed.id);
                   queue.push(removed.id); // Put back in pool
               } else {
-                  // Desperate fallback for 1 person
+                  // Fallback for 1 person
                   chosenEvent = { text: "(P1) survives another hour.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1 };
               }
           }
@@ -407,11 +510,35 @@ export const simulatePhase = (
 
       // --- Event Execution ---
       if (chosenEvent) {
+          // Movement
+          if (chosenEvent.movement) {
+              if (chosenEvent.tags?.includes('Hunt') && group.length === 1) {
+                  // Find nearest enemy
+                  let target: Tribute | undefined;
+                  let minDist = 999;
+                  tributesMap.forEach(t => {
+                      if (t.id !== group[0].id && t.status === TributeStatus.Alive) {
+                          const d = getDistance(group[0], t);
+                          if (d < minDist) { minDist = d; target = t; }
+                      }
+                  });
+                  moveTribute(group[0], target?.coordinates);
+              } else {
+                  group.forEach(t => moveTribute(t));
+              }
+          }
+
           // Items
           if (chosenEvent.itemGain) group[0].inventory.push(...chosenEvent.itemGain);
-          if (chosenEvent.consumesItem && chosenEvent.itemRequired) {
-             chosenEvent.itemRequired.forEach(i => {
-                 const idx = group[0].inventory.indexOf(i);
+          
+          // Robust Item Consumption
+          if (chosenEvent.consumesItem) {
+             const itemsToRemove = Array.isArray(chosenEvent.consumesItem) 
+                ? chosenEvent.consumesItem 
+                : (chosenEvent.itemRequired || []);
+             
+             itemsToRemove.forEach(item => {
+                 const idx = group[0].inventory.indexOf(item);
                  if (idx > -1) group[0].inventory.splice(idx, 1);
              });
           }
@@ -422,7 +549,6 @@ export const simulatePhase = (
               targets.forEach(t => {
                   t.stats.health -= chosenEvent!.healthDamage!;
                   if (t.stats.health <= 0 && !chosenEvent!.fatalities) {
-                       // Accidental death logic
                        t.status = TributeStatus.Dead;
                        t.deathCause = "Succumbed to injuries";
                        fallen.push({...t});
@@ -439,29 +565,36 @@ export const simulatePhase = (
               chosenEvent.victimIndices.forEach(vIdx => {
                   if (group[vIdx]) {
                       const victim = group[vIdx];
+                      // Prevent self-kill unless suicide tag
+                      if (killer && killer.id === victim.id && !chosenEvent?.tags?.includes('Suicide') && !chosenEvent?.tags?.includes('Fail')) {
+                          return; 
+                      }
+
                       victim.status = TributeStatus.Dead;
                       victim.stats.health = 0;
                       victim.deathCause = resolveEventTextPlain(chosenEvent!.text, group);
-                      if (killer) {
+                      
+                      if (killer && killer.id !== victim.id) {
                           victim.killerId = killer.id;
                           victim.killerName = killer.name;
                           killer.killCount++;
                           killer.inventory.push(...victim.inventory); // Loot
                           victim.inventory = [];
                       }
+                      
                       fallen.push({...victim});
                       deathNames.push(victim.name);
                       deathsInPhase++;
                   }
               });
           } else if (group.length > 1) {
-               // Relationship effects for non-fatal interactions
+               // Relationship effects
                if (chosenEvent.tags?.includes('Social')) {
-                   modifyRelationship(group[0], group[1], 10);
-                   modifyRelationship(group[1], group[0], 10);
+                   modifyRelationship(group[0], group[1], 5);
+                   modifyRelationship(group[1], group[0], 5);
                } else if (chosenEvent.tags?.includes('Attack') || chosenEvent.tags?.includes('Theft')) {
-                   modifyRelationship(group[0], group[1], -20);
-                   modifyRelationship(group[1], group[0], -40);
+                   modifyRelationship(group[0], group[1], -15);
+                   modifyRelationship(group[1], group[0], -25);
                }
           }
 
@@ -477,8 +610,7 @@ export const simulatePhase = (
       }
   }
 
-  // --- Cleanup: Arena Events (Global) ---
-  // Small chance for global event *after* individual turns
+  // --- Cleanup: Arena Events ---
   if (phase === 'Day' && Math.random() < 0.15) {
       const ae = arenaEvents[Math.floor(Math.random() * arenaEvents.length)];
       logs.push({ 
@@ -489,6 +621,9 @@ export const simulatePhase = (
       if (ae.damage) {
           tributesMap.forEach(t => {
              if (t.status === TributeStatus.Alive) {
+                 // Shelter checks
+                 if (ae.type === 'Weather' && t.traits.includes('Survivalist')) return; // Safe
+
                  t.stats.health -= ae.damage!;
                  if (t.stats.health <= 0) {
                      t.status = TributeStatus.Dead;
