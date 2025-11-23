@@ -4,7 +4,7 @@ export enum TributeStatus {
   Dead = 'Dead'
 }
 
-export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming' | 'Trained' | 'Underdog';
+export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming' | 'Trained' | 'Underdog' | 'Traumatized' | 'Broken';
 
 export interface Tribute {
   id: string;
@@ -20,6 +20,7 @@ export interface Tribute {
     sanity: number; // 0-100 (Low = Hallucinations/Suicide)
     hunger: number; // 0-100 (High = Starvation)
     exhaustion: number; // 0-100 (High = Sleep/Vulnerable)
+    weaponSkill: number; // 0-100
   };
   traits: Trait[];
   relationships: Record<string, number>; // id -> -100 (Hate) to 100 (Love)
@@ -37,6 +38,8 @@ export enum EventType {
   Feast = 'Feast',
   Arena = 'Arena'
 }
+
+export type WeatherType = 'Clear' | 'Rain' | 'Heatwave' | 'Fog' | 'Storm';
 
 export interface GameEvent {
   text: string; // e.g., "(P1) stabs (P2)."
@@ -75,10 +78,16 @@ export interface RoundHistory {
   logs: LogEntry[];
 }
 
+export interface GameSettings {
+  gameSpeed: number; // ms per round
+  fatalityRate: number; // 0.5 to 2.0
+  enableWeather: boolean;
+}
+
 export interface GameState {
   tributes: Tribute[];
   day: number;
-  phase: 'Reaping' | 'Bloodbath' | 'Day' | 'Night' | 'Fallen' | 'Winner';
+  phase: 'Setup' | 'Reaping' | 'Bloodbath' | 'Day' | 'Night' | 'Fallen' | 'Winner';
   logs: LogEntry[]; // Current round logs
   history: RoundHistory[]; // Past rounds
   fallenTributes: Tribute[]; // For the "Fallen" phase
@@ -86,9 +95,11 @@ export interface GameState {
   gameRunning: boolean;
   daysSinceLastDeath: number; // For "The Director" pacing
   sponsorPoints: number; // New User Interaction
+  currentWeather: WeatherType;
   
   // Pacing Settings
   minDays: number;
   maxDays: number;
   isAutoPlaying: boolean;
+  settings: GameSettings;
 }
