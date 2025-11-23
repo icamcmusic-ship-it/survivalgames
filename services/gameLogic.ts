@@ -1,3 +1,4 @@
+
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
 import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents, feastEvents } from '../data/events';
 
@@ -57,11 +58,27 @@ export const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Trib
     for (let i = 0; i < simulations; i++) {
         // Create simplified roster with Randomized Power (Form)
         let roster = allTributes.map(t => {
+            if (t.status === TributeStatus.Dead) {
+                return { id: t.id, power: 0, alive: false };
+            }
+
             let power = 50; 
             
             // Skill
             power += t.stats.weaponSkill; 
             
+            // Status Penalties (Fix #4)
+            if (t.stats.health < 40) power -= 20;
+            if (t.stats.health < 20) power -= 20;
+            if (t.stats.hunger > 80) power -= 10;
+            if (t.stats.exhaustion > 80) power -= 10;
+            if (t.stats.sanity < 30) power -= 10; // Unpredictable but generally bad
+
+            // Inventory Value
+            t.inventory.forEach(item => {
+                power += (ITEM_VALUES[item] || 1) / 2;
+            });
+
             // Traits
             if (t.traits.includes('Trained')) power += 20;
             if (t.traits.includes('Ruthless')) power += 15;
@@ -77,13 +94,14 @@ export const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Trib
 
             return {
                 id: t.id,
-                power: power,
+                power: Math.max(1, power),
                 alive: true
             };
         });
 
-        let activeCount = roster.length;
-        
+        let activeCount = roster.filter(r => r.alive).length;
+        if (activeCount === 0) continue; 
+
         while (activeCount > 1) {
             let idx1 = Math.floor(Math.random() * roster.length);
             while (!roster[idx1].alive) idx1 = Math.floor(Math.random() * roster.length);
@@ -387,10 +405,12 @@ const calculateEventScore = (
       if (mainActor.stats.health < 60 || mainActor.stats.sanity < 50) score *= 5.0;
   }
 
-  // Suicide Curve (Smoother)
+  // Suicide Curve (Smoother) - Fix #14
   if (actors.length === 1 && event.tags?.includes('Suicide')) {
-      if (mainActor.stats.sanity < 20) {
-          score *= (1 + (20 - mainActor.stats.sanity) * 2); // Gradual increase
+      if (mainActor.stats.sanity < 30) {
+          // Exponential increase as sanity drops below 30
+          const severity = 30 - mainActor.stats.sanity;
+          score *= (1 + Math.pow(severity, 2) / 10);
       } else {
           score = 0;
       }
@@ -496,7 +516,8 @@ export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes:
         logs.push({
             id: crypto.randomUUID(),
             text: parseEventText(event.text, group),
-            type: EventType.Training
+            type: EventType.Training,
+            relatedTributeIds: group.map(t => t.id)
         });
     }
 
@@ -589,7 +610,8 @@ export const simulatePhase = (
                       id: `arena-death-${t.id}`,
                       text: `${t.name} succumbed to the arena event.`,
                       type: EventType.Arena,
-                      deathNames: [t.name]
+                      deathNames: [t.name],
+                      relatedTributeIds: [t.id]
                   });
               }
           }
@@ -679,6 +701,9 @@ export const simulatePhase = (
           }
       });
   }
+  
+  // Pre-cleanup Alliances (Fix #11)
+  // Logic moved to after events to prevent breaking active pairs, but improved check added below loop.
 
   while (availableIds.length > 0) {
     const actorId = availableIds.pop();
@@ -796,10 +821,24 @@ export const simulatePhase = (
     if (desire === 'Kill') possibleEvents = possibleEvents.filter(e => e.fatalities || e.tags?.includes('Attack') || e.playerCount > 1);
     else if (desire === 'Social') possibleEvents = possibleEvents.filter(e => !e.fatalities && !e.tags?.includes('Attack'));
     
-    if (possibleEvents.length === 0) possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
+    if (possibleEvents.length === 0) {
+        // Fix #9: Fallback to generic attack if desire was Kill
+        if (desire === 'Kill' && finalGroupSize > 1) {
+             possibleEvents = [
+                { text: "(P1) attacks (P2) but fails to kill them.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Fail'], healthDamage: 15 }
+             ];
+        } else {
+             possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
+        }
+    }
     
     // Filter non-fatalities if pacing requires it
     if (day < minDays && deathsThisPhase > 4 && phase !== 'Bloodbath') possibleEvents = possibleEvents.filter(e => !e.fatalities);
+
+    // Filter Travel events during Feast to prevent leaving immediately (Fix #10)
+    if (isFeast) {
+        possibleEvents = possibleEvents.filter(e => !e.tags?.includes('Travel'));
+    }
 
     let chosenEvent: GameEvent | null = null;
     let totalWeight = 0;
@@ -848,8 +887,9 @@ export const simulatePhase = (
         });
     }
     
-    // Inventory Limit
+    // Inventory Limit (Fix #3: Ensure best items kept)
     if (actors[0].inventory.length > 4) {
+        // Sort puts high value items first
         actors[0].inventory.sort((a, b) => (ITEM_VALUES[b] || 0) - (ITEM_VALUES[a] || 0));
         actors[0].inventory = actors[0].inventory.slice(0, 4); 
     }
@@ -874,10 +914,17 @@ export const simulatePhase = (
             const prevR = a.coordinates.r;
             a.coordinates.q += move.q;
             a.coordinates.r += move.r;
-            // Hex boundary check (Distance from center <= 5)
+            // Hex boundary check (Fix #7: Bounce instead of reset)
             if (Math.abs(a.coordinates.q + a.coordinates.r) > 5 || Math.abs(a.coordinates.q) > 5 || Math.abs(a.coordinates.r) > 5) {
-                a.coordinates.q = prevQ;
-                a.coordinates.r = prevR;
+                // Bounce logic: reverse the move
+                a.coordinates.q = prevQ - move.q;
+                a.coordinates.r = prevR - move.r;
+                
+                // Double check bounce validity (corner case), if still out, reset to prev
+                if (Math.abs(a.coordinates.q + a.coordinates.r) > 5 || Math.abs(a.coordinates.q) > 5 || Math.abs(a.coordinates.r) > 5) {
+                     a.coordinates.q = prevQ;
+                     a.coordinates.r = prevR;
+                }
             }
         });
     }
@@ -908,8 +955,9 @@ export const simulatePhase = (
                 
                 if (killer && v.inventory.length > 0) {
                     killer.inventory.push(...v.inventory);
-                    v.inventory = [];
+                    v.inventory = []; // Looted
                     if (killer.inventory.length > 4) {
+                        // Ensure killer keeps the BEST items (Fix #3)
                         killer.inventory.sort((a, b) => (ITEM_VALUES[b] || 0) - (ITEM_VALUES[a] || 0));
                         killer.inventory = killer.inventory.slice(0, 4); 
                     }
@@ -927,7 +975,7 @@ export const simulatePhase = (
              if (killer.traits.includes('Coward') && killer.killCount >= 2) {
                  killer.traits = killer.traits.filter(t => t !== 'Coward');
                  killer.traits.push('Ruthless');
-                 logs.push({ id: `ev-${crypto.randomUUID()}`, text: `<span class="text-purple-400 font-bold">TRAIT EVOLUTION:</span> ${killer.name} has shed their cowardice.`, type: EventType.Day });
+                 logs.push({ id: `ev-${crypto.randomUUID()}`, text: `<span class="text-purple-400 font-bold">TRAIT EVOLUTION:</span> ${killer.name} has shed their cowardice.`, type: EventType.Day, relatedTributeIds: [killer.id] });
              }
              if (killer.traits.includes('Underdog') && killer.killCount >= 3) {
                  killer.traits = killer.traits.filter(t => t !== 'Underdog');
@@ -950,21 +998,26 @@ export const simulatePhase = (
       id: crypto.randomUUID(),
       text: finalLogText,
       type: phase === 'Bloodbath' ? EventType.Bloodbath : (phase === 'Night' ? EventType.Night : (isFeast ? EventType.Feast : EventType.Day)),
-      deathNames: deathNames.length > 0 ? deathNames : undefined
+      deathNames: deathNames.length > 0 ? deathNames : undefined,
+      relatedTributeIds: actors.map(t => t.id) // Fix #5
     });
   }
 
   // --- Cleanup: Fragmentation ---
-  // Check for 1-person alliances and disband them
+  // Fix #11: Robust Alliance Cleanup
   const allianceCounts = new Map<string, number>();
   tributesMap.forEach(t => {
-      if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
+      if (t.status === TributeStatus.Alive && t.allianceId) {
           allianceCounts.set(t.allianceId, (allianceCounts.get(t.allianceId) || 0) + 1);
       }
   });
+  
   tributesMap.forEach(t => {
-      if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
+      if (t.status === TributeStatus.Alive && t.allianceId) {
+          // Disband if only 1 member
           if (allianceCounts.get(t.allianceId)! < 2) {
+              // If it's a career pack, maybe they stay loyal to the ideal longer? 
+              // For now, standard rules: solo = no alliance.
               t.allianceId = undefined;
           }
       }

@@ -1,3 +1,4 @@
+
 import { GameEvent, Tribute } from '../types';
 
 // Helper conditions
@@ -114,6 +115,9 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) discovers a hidden cave.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Travel'] },
   { text: "(P1) finds a dead tribute and loots their body.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Supply'] },
   { text: "(P1) sharpens their weapons.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
+  
+  // Rare Scavenge (Fix for missing explosives)
+  { text: "(P1) scavenges an old supply crate and finds some Explosives.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.3, tags: ['Supply'], itemGain: ['Explosives'] },
 
   // Item Usage
   { text: "(P1) uses their First Aid Kit to treat their wounds.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 10.0, tags: ['Heal'], itemRequired: ['First Aid Kit'], consumesItem: true, condition: (a) => isInjured(a[0]) },
@@ -159,6 +163,8 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1), (P2), (P3), (P4), (P5), (P6), and (P7) make a truce for the night.", playerCount: 7, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
   { text: "The remaining tributes (P1), (P2), (P3), (P4), (P5), (P6), (P7), and (P8) stare each other down.", playerCount: 8, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
   { text: "(P1), (P2), (P3) and (P4) raid (P5)'s camp, stealing their supplies.", playerCount: 5, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Theft', 'Attack'] },
+  // Fallback Attack event to prevent "Huddle" when trying to kill
+  { text: "(P1) attacks (P2) but fails to kill them.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Attack', 'Fail'], healthDamage: 15 },
 
 ];
 

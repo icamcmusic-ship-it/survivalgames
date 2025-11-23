@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -46,6 +47,7 @@ const stringToColor = (str: string) => {
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
+    // Fix #12: Consistent Critical Threshold
     if (tribute.stats.health < 40) {
         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse z-20">CRITICAL</span>;
     }
@@ -222,8 +224,9 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
                    <span>Health</span>
                 </div>
                 <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                  {/* Fix #12: Synced Pulse */}
                   <div 
-                    className={`h-full rounded-full ${tribute.stats.health < 30 ? 'bg-red-600 animate-pulse' : 'bg-green-600'}`} 
+                    className={`h-full rounded-full ${tribute.stats.health < 40 ? 'bg-red-600 animate-pulse' : 'bg-green-600'}`} 
                     style={{ width: `${healthPercent}%` }}
                   ></div>
                 </div>

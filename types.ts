@@ -74,7 +74,8 @@ export interface LogEntry {
   id: string;
   text: string;
   type: EventType;
-  deathNames?: string[]; 
+  deathNames?: string[];
+  relatedTributeIds?: string[]; // Added for filtering
 }
 
 export interface RoundHistory {
@@ -101,6 +102,7 @@ export interface GameState {
   daysSinceLastDeath: number; 
   sponsorPoints: number; 
   currentWeather: WeatherType;
+  weatherDuration: number; // Added for weather persistence
   
   userBet: string | null; // ID of tribute user bet on
 

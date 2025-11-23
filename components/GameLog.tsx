@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { LogEntry, RoundHistory } from '../types';
 
@@ -58,50 +59,17 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history, sel
 
   // Apply Filters
   const filteredLogs = displayLogs.filter(log => {
-      // Tribute Filter
+      // Tribute Filter (Fix #5)
       if (selectedTributeId) {
-          // We can check simply if the text contains the name, but checking by ID is harder as IDs aren't in text.
-          // The log text contains HTML spans with names. We rely on text match or if we stored actor IDs in log.
-          // For now, simple text match is efficient enough for this simulation size.
-          // Ideally, logs should store actorIds array.
-          // However, since we can't easily change log structure retroactively for this quick fix, we skip strict checking
-          // or assume the name is present.
-          // BETTER: The log text generation uses Tribute Name.
+         if (!log.relatedTributeIds || !log.relatedTributeIds.includes(selectedTributeId)) {
+             return false;
+         }
       }
       
       if (filter === 'DEATHS') return !!log.deathNames;
       if (filter === 'MAJOR') return !!log.deathNames || log.type === 'Arena' || log.type === 'Bloodbath';
       return true;
-  }).filter(log => {
-       if (selectedTributeId) {
-           // This is a loose check, but works for the current rendering logic
-           // To make it robust, we need to check if the log text contains the Tribute Name associated with ID.
-           // Since we don't have the name map here easily without passing tributes, we will rely on the parent passing a filtered list OR
-           // we accept that filtering by text is harder.
-           // Wait, we can just pass selectedTributeName from parent or filter in parent?
-           // Let's filter by text content matching the highlighted span class which usually contains names.
-           // Actually, let's filter by checking if the log text contains the *name*. 
-           // But we only have ID. 
-           // Let's trust the regex search in the parent? No, logic belongs here.
-           // We will skip strict ID filtering inside this component to avoid prop drilling Tributes.
-           // Instead, we rely on the fact that `selectedTributeId` will trigger a prop update, 
-           // but we need the name. 
-           // Revised: We will assume `selectedTributeId` is handled by filtering `displayLogs` in the parent? 
-           // No, that breaks the architecture.
-           // Let's just skip this feature inside the component and assume logs are passed filtered? No.
-           // Implementation decision: We will ignore the ID filter here for a moment and stick to Type filters,
-           // UNLESS the parent passes a `searchQuery`.
-           return true; 
-       }
-       return true;
   });
-
-  // Refined Filter Logic with Search
-  const finalLogs = selectedTributeId 
-    ? filteredLogs.filter(l => l.text.includes('group relative cursor-help')) // Basic check, real name check requires props
-    : filteredLogs;
-
-  // Actually, let's do the filtering in the return map to highlight/hide.
 
   const handlePrev = () => {
       if (viewIndex === -1) {
@@ -205,17 +173,16 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history, sel
             </div>
         )}
         
-        {finalLogs.map((log, idx) => {
+        {filteredLogs.map((log, idx) => {
           const isDeath = !!log.deathNames;
           const isArena = log.type === 'Arena';
           const isInsanity = log.text.includes('Insanity');
           
-          const showDivider = idx > 0 && displayLogs[idx-1].type !== log.type && log.type !== 'Day';
+          // Divider check needs to use original index or reference previous filtered item.
+          // Simplification: just check type change against previous rendered item.
+          const prevLog = filteredLogs[idx - 1];
+          const showDivider = prevLog && prevLog.type !== log.type && log.type !== 'Day';
           
-          // If Filtering by Tribute ID, we need to check if the text contains the tribute name. 
-          // Since we can't easily do that here without the name, we will just render all filtered by type.
-          // The parent component logic should filter the LOGS array passed to this component if strict filtering is needed.
-
           return (
             <React.Fragment key={log.id}>
                 {showDivider && (

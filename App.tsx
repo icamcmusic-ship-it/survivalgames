@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TributeStatus, WeatherType } from './types';
 import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds } from './services/gameLogic';
@@ -7,7 +8,6 @@ import { DeathRecap } from './components/DeathRecap';
 import { StatsModal } from './components/StatsModal';
 import { RelationshipGrid } from './components/RelationshipGrid';
 import { MapModal } from './components/MapModal';
-import { PostGameSummary } from './components/PostGameSummary';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
@@ -26,8 +26,9 @@ const App: React.FC = () => {
     maxDays: 10,
     isAutoPlaying: false,
     currentWeather: 'Clear',
+    weatherDuration: 0,
     settings: {
-        gameSpeed: 1000, // Default faster
+        gameSpeed: 1000, 
         fatalityRate: 1.0,
         enableWeather: true
     }
@@ -40,12 +41,22 @@ const App: React.FC = () => {
   const [showMap, setShowMap] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedTributeId, setSelectedTributeId] = useState<string | null>(null);
+  const [viewingPostGame, setViewingPostGame] = useState(false);
 
-  // Load Settings
+  // Load Settings & Data
   useEffect(() => {
       const savedSettings = localStorage.getItem('br_settings');
+      const savedPoints = localStorage.getItem('br_sponsorPoints');
+      const savedBet = localStorage.getItem('br_userBet');
+
       if (savedSettings) {
           setGameState(prev => ({ ...prev, settings: JSON.parse(savedSettings) }));
+      }
+      if (savedPoints) {
+          setGameState(prev => ({ ...prev, sponsorPoints: parseInt(savedPoints) }));
+      }
+      if (savedBet) {
+          setGameState(prev => ({ ...prev, userBet: savedBet }));
       }
   }, []);
 
@@ -53,6 +64,16 @@ const App: React.FC = () => {
   useEffect(() => {
       localStorage.setItem('br_settings', JSON.stringify(gameState.settings));
   }, [gameState.settings]);
+
+  // Fix #15: Persist Funds & Bet
+  useEffect(() => {
+      localStorage.setItem('br_sponsorPoints', gameState.sponsorPoints.toString());
+      if (gameState.userBet) {
+          localStorage.setItem('br_userBet', gameState.userBet);
+      } else {
+          localStorage.removeItem('br_userBet');
+      }
+  }, [gameState.sponsorPoints, gameState.userBet]);
 
   // Initialize tributes only on mount if empty
   useEffect(() => {
@@ -77,8 +98,7 @@ const App: React.FC = () => {
         if (timerRef.current) clearTimeout(timerRef.current);
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [gameState.isAutoPlaying, gameState.phase, gameState.day, gameState.settings.gameSpeed]); 
-  // removed `tributes` from dep array to avoid re-trigger on minor state changes mid-tick, rely on ref/cycle
+  }, [gameState.isAutoPlaying, gameState.phase, gameState.day, gameState.settings.gameSpeed, gameState.logs.length]); 
 
   // --- Game Logic Controls ---
 
@@ -86,18 +106,27 @@ const App: React.FC = () => {
     setGameState(prev => {
         const currentAlive = prev.tributes.filter(t => t.status === TributeStatus.Alive);
 
-        // Winner or No Winner Check
-        if ((currentAlive.length <= 1 || currentAlive.length === 0) && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
+        // Winner Check: 1 or 0 alive (simultaneous death)
+        if ((currentAlive.length <= 1) && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
           let extraLogs = [];
           let pointsAwarded = 0;
+          
+          // If 0 alive, the winner is the last person added to fallen tributes (closest to winning)
+          const winner = currentAlive.length === 1 ? currentAlive[0] : prev.fallenTributes[prev.fallenTributes.length - 1];
+
+          if (!winner) {
+               // Should not happen unless game is empty
+               return prev; 
+          }
+
           if (prev.userBet) {
-              const winner = currentAlive[0];
-              if (winner && winner.id === prev.userBet) {
+              if (winner.id === prev.userBet) {
                   pointsAwarded = 500;
                   extraLogs.push({
                       id: `bet-win-${crypto.randomUUID()}`,
                       text: `<span class="text-gold font-bold text-lg">BET WON!</span> You placed your faith in the right tribute. +500 Funds.`,
-                      type: 'Winner' as any
+                      type: 'Winner' as any,
+                      relatedTributeIds: [winner.id]
                   });
               }
           }
@@ -122,10 +151,9 @@ const App: React.FC = () => {
             break;
           case 'Reaping':
             nextPhase = 'Training';
-            nextDay = 1; // Start at Day 1
+            nextDay = 1; 
             break;
           case 'Training':
-             // Training Day 1, 2, 3. Then transition.
              if (prev.day < 3) {
                  isTrainingStep = true;
                  nextDay = prev.day + 1;
@@ -175,47 +203,45 @@ const App: React.FC = () => {
              };
         }
 
-        // Transition from Training -> Bloodbath: Recalculate Odds
+        // Transition from Training -> Bloodbath
         if (prev.phase === 'Training' && nextPhase === 'Bloodbath') {
             const updatedTributes = recalculateAllOdds(prev.tributes);
             const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }];
             
-            // Initial Weather for Day 1 (Bloodbath typically clear, but set up for later)
             return {
                 ...prev,
                 tributes: updatedTributes,
                 phase: 'Bloodbath',
                 day: 1,
                 history: newHistory,
-                logs: [] // New log for bloodbath
+                logs: [],
+                currentWeather: 'Clear',
+                weatherDuration: 3
             };
         }
 
-        // Determine Weather
+        // Weather Logic
         let nextWeather = prev.currentWeather;
-        if (prev.settings.enableWeather) {
-             // Clear persistent storms after 3 days
-             let badWeatherStreak = 0;
-             if (prev.history.length > 3) {
-                // Rough logic: if previous 3 days weren't clear.
+        let nextDuration = prev.weatherDuration;
+
+        if (prev.settings.enableWeather && nextPhase === 'Day') {
+             if (prev.weatherDuration > 0) {
+                 nextDuration = prev.weatherDuration - 1;
+             } else {
+                 // Reroll Weather
+                 const rand = Math.random();
+                 if (rand < 0.5) {
+                     nextWeather = 'Clear';
+                     nextDuration = 2;
+                 } else {
+                     const weathers: WeatherType[] = ['Rain', 'Heatwave', 'Fog', 'Storm'];
+                     nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
+                     nextDuration = Math.floor(Math.random() * 2) + 1; // 1-2 days of bad weather
+                 }
              }
-             
-             if (nextPhase === 'Day' && Math.random() < 0.3) {
-                const weathers: WeatherType[] = ['Clear', 'Rain', 'Heatwave', 'Fog', 'Storm'];
-                nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
-            } else if (nextPhase === 'Night') {
-                // 50% chance to persist weather
-                if (Math.random() < 0.5) {
-                    nextWeather = prev.currentWeather;
-                } else {
-                    nextWeather = 'Clear';
-                }
-            }
-        } else {
-            nextWeather = 'Clear';
         }
 
-        // Run Simulation ONLY if not a transition step that already happened
+        // Run Simulation
         let result = {
             updatedTributes: prev.tributes,
             logs: [] as any[],
@@ -262,7 +288,8 @@ const App: React.FC = () => {
           totalEvents: prev.totalEvents + result.logs.length,
           daysSinceLastDeath: newDaysSinceLastDeath,
           sponsorPoints: prev.sponsorPoints + 25,
-          currentWeather: nextWeather // Update state
+          currentWeather: nextWeather,
+          weatherDuration: nextDuration
         };
     });
   }, []);
@@ -279,35 +306,77 @@ const App: React.FC = () => {
         totalEvents: 0,
         gameRunning: false,
         daysSinceLastDeath: 0,
-        sponsorPoints: 100,
+        sponsorPoints: prev.sponsorPoints, // Keep points (Fix #15)
         userBet: null,
         minDays: 5,
         maxDays: 10,
         isAutoPlaying: false,
         currentWeather: 'Clear', 
+        weatherDuration: 0,
         settings: { ...prev.settings }
     }));
     setSponsorMode(false);
     setSelectedTributeId(null);
+    setViewingPostGame(false);
   };
 
   const handleSponsor = (tributeId: string) => {
       if (gameState.sponsorPoints < 25) return;
       
-      const items = ['Bread', 'Water', 'Bandages', 'Antidote', 'Spear'];
-      const item = items[Math.floor(Math.random() * items.length)];
-
       setGameState(prev => {
           const target = prev.tributes.find(t => t.id === tributeId);
-          // Let card handle shaking, we just return early here
+          // Let card handle shaking
           if (target && target.inventory.length >= 4) return prev;
+          if (!target || target.status === TributeStatus.Dead) return prev;
+
+          // Smart Sponsor Logic
+          let item = 'Water';
+          const r = Math.random();
+          
+          if (target.stats.hunger > 50) {
+             item = r < 0.7 ? 'Bread' : 'Food';
+          } else if (target.stats.health < 60) {
+             item = r < 0.6 ? 'Bandages' : 'First Aid Kit';
+          } else if (target.stats.sanity < 40) {
+             item = 'Note from Home'; // Flavor item, logic treats strings generically
+          } else if (target.stats.exhaustion > 50) {
+             item = 'Energy Gel';
+          } else {
+             const weapons = ['Spear', 'Knife', 'Backpack', 'Antidote'];
+             item = weapons[Math.floor(Math.random() * weapons.length)];
+          }
+          
+          if (item === 'Note from Home') {
+             // Special effect: Sanity boost only, no item
+             const updatedTributes = prev.tributes.map(t => {
+                  if (t.id === tributeId) {
+                       return { ...t, stats: { ...t.stats, sanity: Math.min(100, t.stats.sanity + 30) } };
+                  }
+                  return t;
+             });
+             return {
+                  ...prev,
+                  tributes: updatedTributes,
+                  sponsorPoints: prev.sponsorPoints - 25,
+                  logs: [...prev.logs, {
+                      id: `sponsor-${crypto.randomUUID()}`,
+                      text: `<span class="text-blue-400 font-bold">SPONSOR:</span> <span class="text-gold">${target.name}</span> receives a note from home, restoring their resolve.`,
+                      type: prev.phase as any,
+                      relatedTributeIds: [target.id]
+                  }]
+             };
+          }
 
           const updatedTributes = prev.tributes.map(t => {
-              if (t.id === tributeId && t.status === TributeStatus.Alive) {
+              if (t.id === tributeId) {
                    return {
                        ...t,
                        inventory: [...t.inventory, item],
-                       stats: { ...t.stats, sanity: Math.min(100, t.stats.sanity + 10), hunger: Math.max(0, t.stats.hunger - 20) }
+                       stats: { 
+                           ...t.stats, 
+                           sanity: Math.min(100, t.stats.sanity + 10), 
+                           hunger: Math.max(0, t.stats.hunger - 10) 
+                       }
                    };
               }
               return t;
@@ -315,8 +384,9 @@ const App: React.FC = () => {
           
           const newLog = {
               id: `sponsor-${crypto.randomUUID()}`,
-              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers a <span class="text-white">${item}</span> to <span class="text-gold">${target?.name}</span>.`,
-              type: prev.phase === 'Bloodbath' ? 'Bloodbath' : (prev.phase === 'Night' ? 'Night' : 'Day') as any
+              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers <span class="text-white">${item}</span> to <span class="text-gold">${target?.name}</span>.`,
+              type: prev.phase === 'Bloodbath' ? 'Bloodbath' : (prev.phase === 'Night' ? 'Night' : 'Day') as any,
+              relatedTributeIds: [target!.id]
           };
 
           return {
@@ -329,16 +399,18 @@ const App: React.FC = () => {
   };
 
   const handleModifyAttributes = (tributeId: string, attr: 'health' | 'weaponSkill', amount: number) => {
-      setGameState(prev => ({
-          ...prev,
-          tributes: prev.tributes.map(t => {
+      setGameState(prev => {
+          const updated = prev.tributes.map(t => {
               if (t.id === tributeId) {
                   const newVal = Math.max(0, Math.min(100, t.stats[attr] + amount));
                   return { ...t, stats: { ...t.stats, [attr]: newVal } };
               }
               return t;
-          })
-      }));
+          });
+          // Fix #6: Recalculate odds to prevent stale state
+          const withOdds = recalculateAllOdds(updated);
+          return { ...prev, tributes: withOdds };
+      });
   };
 
   const triggerArenaEvent = (type: string, cost: number) => {
@@ -351,27 +423,67 @@ const App: React.FC = () => {
       
       setGameState(prev => {
           let updatedTributes = [...prev.tributes];
-          let extraLogs = [];
+          let newFallen = [...prev.fallenTributes];
+          let deathLogs: any[] = [];
 
           if (type === 'Resurrect') {
                const dead = updatedTributes.filter(t => t.status === TributeStatus.Dead);
                if (dead.length > 0) {
                    const lucky = dead[Math.floor(Math.random() * dead.length)];
-                   lucky.status = TributeStatus.Alive;
-                   lucky.stats.health = 50;
-                   lucky.deathCause = undefined;
+                   
+                   updatedTributes = updatedTributes.map(t => {
+                       if (t.id === lucky.id) {
+                           return {
+                               ...t,
+                               status: TributeStatus.Alive,
+                               stats: { ...t.stats, health: 50 },
+                               deathCause: undefined
+                           };
+                       }
+                       return t;
+                   });
+
                    text = `MIRACLE: <span class="text-gold font-bold">${lucky.name}</span> claws their way back from the grave!`;
+                   // Fix #1: Remove from fallen tributes
+                   newFallen = newFallen.filter(t => t.id !== lucky.id);
                } else {
                    text = "Resurrection failed: No bodies found.";
                }
+          }
+
+          // Fix #2: Actual Mutts Logic
+          if (type === 'Mutts') {
+              updatedTributes = updatedTributes.map(t => {
+                  if (t.status === TributeStatus.Alive) {
+                      // Apply damage
+                      const damage = 35;
+                      const newHealth = t.stats.health - damage;
+                      
+                      if (newHealth <= 0) {
+                           newFallen.push({ ...t, status: TributeStatus.Dead, stats: { ...t.stats, health: 0 }, deathCause: "Mauled by Mutts" });
+                           deathLogs.push({
+                               id: `mutt-kill-${t.id}`,
+                               text: `<span class="text-blood font-bold">${t.name}</span> was torn apart by the mutts.`,
+                               type: 'Arena' as any,
+                               deathNames: [t.name],
+                               relatedTributeIds: [t.id]
+                           });
+                           return { ...t, status: TributeStatus.Dead, stats: { ...t.stats, health: 0 }, deathCause: "Mauled by Mutts" };
+                      } else {
+                           return { ...t, stats: { ...t.stats, health: newHealth } };
+                      }
+                  }
+                  return t;
+              });
           }
 
           return {
             ...prev,
             tributes: updatedTributes,
             sponsorPoints: prev.sponsorPoints - cost,
-            logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }],
-            currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather
+            logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }, ...deathLogs],
+            currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather,
+            fallenTributes: newFallen
           };
       });
   };
@@ -420,9 +532,9 @@ const App: React.FC = () => {
                 <div className="bg-panel border border-gold rounded-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
                     <h2 className="font-display text-2xl text-gold mb-4 uppercase font-bold">Training Guide</h2>
                     <div className="space-y-4 text-gray-300 text-sm font-mono">
-                        <p>Welcome to the Battle Royale Simulator v3.2.</p>
+                        <p>Welcome to the Battle Royale Simulator v3.3.</p>
                         <ul className="list-disc pl-5 space-y-2">
-                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds! Odds update after Training.</li>
+                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds! Odds update after Training. Bets and Funds persist between sessions.</li>
                             <li><strong className="text-white">Map System:</strong> Tributes move on a Hex grid. They must be adjacent to interact.</li>
                             <li><strong className="text-white">God Mode:</strong> During the "Reaping/Setup" phase, use the +/- buttons on cards to modify stats.</li>
                             <li><strong className="text-white">Filtering:</strong> Click a tribute card during the game to filter the Game Log for their events.</li>
@@ -576,15 +688,27 @@ const App: React.FC = () => {
             
             {gameState.phase === 'Day' && gameState.currentWeather === 'Rain' && <div className="absolute inset-0 pointer-events-none bg-blue-900/10 z-0 animate-pulse-slow"></div>}
             
-            {gameState.phase === 'Winner' && (
+            {gameState.phase === 'Winner' && !viewingPostGame && (
                 <div className="w-full h-full flex flex-col items-center justify-center z-20">
                     <StatsModal 
-                        winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.tributes[0]} 
+                        winner={
+                            gameState.tributes.find(t => t.status === TributeStatus.Alive) || 
+                            gameState.fallenTributes[gameState.fallenTributes.length - 1] ||
+                            gameState.tributes[0]
+                        } 
                         duration={gameState.day} 
                         tributes={gameState.tributes}
                         history={gameState.history}
                         onRestart={handleRestart}
+                        onClose={() => setViewingPostGame(true)} // Fix #13
                     />
+                </div>
+            )}
+            
+            {/* Winner view when modal is closed */}
+            {gameState.phase === 'Winner' && viewingPostGame && (
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 z-30">
+                    <button onClick={handleRestart} className="bg-gold text-black font-bold px-8 py-3 rounded shadow-lg">START NEW GAME</button>
                 </div>
             )}
 
