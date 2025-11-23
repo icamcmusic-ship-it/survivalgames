@@ -1,8 +1,7 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TributeStatus, Tribute, EventType } from './types';
-import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds } from './services/gameLogic';
+import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds, advanceWeather } from './services/gameLogic';
 import { TributeCard } from './components/TributeCard';
 import { GameLog } from './components/GameLog';
 import { DeathRecap } from './components/DeathRecap';
@@ -36,6 +35,7 @@ const App: React.FC = () => {
   });
 
   const [sponsorMode, setSponsorMode] = useState(false);
+  const [sponsorItem, setSponsorItem] = useState<string>('Food');
   const [showAliveOnly, setShowAliveOnly] = useState(false);
   const [showRelationships, setShowRelationships] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -90,7 +90,19 @@ const App: React.FC = () => {
       // Main Simulation Phases
       let nextPhase = prev.phase;
       let nextDay = prev.day;
+      let nextWeather = prev.currentWeather;
+      let nextWeatherDuration = prev.weatherDuration;
       
+      // Weather Logic
+      if (prev.settings.enableWeather) {
+          if (nextWeatherDuration <= 0) {
+              nextWeather = advanceWeather(prev.currentWeather);
+              nextWeatherDuration = Math.floor(Math.random() * 3) + 2; // Lasts 2-4 phases
+          } else {
+              nextWeatherDuration--;
+          }
+      }
+
       if (prev.phase === 'Bloodbath') {
           nextPhase = 'Day';
       } else if (prev.phase === 'Day') {
@@ -107,7 +119,7 @@ const App: React.FC = () => {
           prev.day,
           prev.minDays,
           prev.maxDays,
-          prev.currentWeather,
+          nextWeather,
           prev.settings.fatalityRate,
           prev.settings.enableWeather
       );
@@ -115,6 +127,8 @@ const App: React.FC = () => {
       const newState = { ...prev };
       newState.tributes = res.updatedTributes;
       newState.logs = [...prev.logs, ...res.logs]; 
+      newState.currentWeather = nextWeather;
+      newState.weatherDuration = nextWeatherDuration;
       
       // Save to History immediately so Timeline has it
       newState.history = [...prev.history, { phase: prev.phase, day: prev.day, logs: res.logs }];
@@ -163,21 +177,20 @@ const App: React.FC = () => {
   };
 
   const handleSponsor = (id: string) => {
-      if (gameState.sponsorPoints >= 25) {
+      const cost = 25;
+      if (gameState.sponsorPoints >= cost) {
           setGameState(prev => {
               const updated = prev.tributes.map(t => {
                   if (t.id === id) {
-                      const items = ['Food', 'Water', 'Medicine', 'Bandages'];
-                      const item = items[Math.floor(Math.random() * items.length)];
-                      return { ...t, inventory: [...t.inventory, item] };
+                      return { ...t, inventory: [...t.inventory, sponsorItem] };
                   }
                   return t;
               });
               return { 
                   ...prev, 
                   tributes: updated, 
-                  sponsorPoints: prev.sponsorPoints - 25,
-                  logs: [...prev.logs, { id: crypto.randomUUID(), text: `A silver parachute brings a gift to the arena.`, type: EventType.Day, day: prev.day, phase: prev.phase }]
+                  sponsorPoints: prev.sponsorPoints - cost,
+                  logs: [...prev.logs, { id: crypto.randomUUID(), text: `A silver parachute brings a <b>${sponsorItem}</b> to the arena.`, type: EventType.Day, day: prev.day, phase: prev.phase }]
                };
           });
       }
@@ -187,8 +200,16 @@ const App: React.FC = () => {
       ? gameState.tributes.filter(t => t.status === TributeStatus.Alive)
       : gameState.tributes;
 
+  const getBackgroundClass = () => {
+      switch(gameState.phase) {
+          case 'Bloodbath': return 'bg-red-950/20';
+          case 'Night': return 'bg-indigo-950/30';
+          default: return 'bg-gray-900';
+      }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-200 font-sans selection:bg-gold selection:text-black">
+    <div className={`min-h-screen ${getBackgroundClass()} transition-colors duration-1000 text-gray-200 font-sans selection:bg-gold selection:text-black`}>
         {/* Setup Screen */}
         {gameState.phase === 'Setup' && (
             <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-6">
@@ -221,7 +242,7 @@ const App: React.FC = () => {
         {showMap && <MapModal tributes={gameState.tributes} onClose={() => setShowMap(false)} />}
 
         {/* Header */}
-        <header className="fixed top-0 left-0 right-0 h-16 bg-panel border-b border-gray-800 flex items-center justify-between px-6 z-30">
+        <header className="fixed top-0 left-0 right-0 h-16 bg-panel border-b border-gray-800 flex items-center justify-between px-6 z-30 shadow-lg">
              <div className="flex items-center gap-4">
                  <h1 className="font-display text-xl text-white font-bold tracking-widest">HG SIM</h1>
                  <div className="h-6 w-px bg-gray-700"></div>
@@ -229,6 +250,7 @@ const App: React.FC = () => {
                      <span className={gameState.gameRunning ? "text-green-500 animate-pulse" : "text-red-500"}>● {gameState.gameRunning ? "RUNNING" : "PAUSED"}</span>
                      <span className="text-gray-500">Day {gameState.day} - {gameState.phase}</span>
                      <span className="text-gray-500">Alive: {gameState.tributes.filter(t => t.status === TributeStatus.Alive).length}</span>
+                     {gameState.settings.enableWeather && <span className="text-blue-400">[{gameState.currentWeather}]</span>}
                  </div>
              </div>
 
@@ -251,9 +273,28 @@ const App: React.FC = () => {
                      <span className="text-gold font-bold text-sm">{gameState.sponsorPoints}</span>
                      <span className="text-[10px] text-gray-500 uppercase">CP</span>
                  </div>
-                 <button onClick={() => setSponsorMode(!sponsorMode)} className={`p-2 rounded ${sponsorMode ? 'bg-gold text-black' : 'text-gray-400 hover:text-white'}`}>
-                     Gift
-                 </button>
+                 
+                 {sponsorMode ? (
+                     <div className="flex items-center gap-1 bg-gray-800 rounded p-1">
+                        <select 
+                            value={sponsorItem} 
+                            onChange={(e) => setSponsorItem(e.target.value)}
+                            className="bg-gray-900 text-xs text-white border border-gray-700 rounded px-1 py-1 outline-none"
+                        >
+                            <option value="Food">Food</option>
+                            <option value="Water">Water</option>
+                            <option value="Medicine">Medicine</option>
+                            <option value="Bandages">Bandages</option>
+                            <option value="Knife">Knife</option>
+                            <option value="Spear">Spear</option>
+                        </select>
+                        <button onClick={() => setSponsorMode(false)} className="text-red-400 px-2 text-xs font-bold">X</button>
+                     </div>
+                 ) : (
+                    <button onClick={() => setSponsorMode(true)} className="p-2 text-gray-400 hover:text-white text-xs font-bold border border-gray-700 rounded hover:bg-gray-800">
+                        Gift
+                    </button>
+                 )}
              </div>
         </header>
 

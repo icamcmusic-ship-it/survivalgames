@@ -1,5 +1,4 @@
 
-
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
 import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents, feastEvents } from '../data/events';
 
@@ -197,6 +196,15 @@ const clampStats = (t: Tribute) => {
     t.stats.weaponSkill = Math.max(0, Math.min(100, t.stats.weaponSkill));
 };
 
+export const advanceWeather = (current: WeatherType): WeatherType => {
+    if (Math.random() < 0.3) {
+        // Change weather
+        const weathers: WeatherType[] = ['Clear', 'Rain', 'Fog', 'Heatwave', 'Storm', 'Clear', 'Clear'];
+        return weathers[Math.floor(Math.random() * weathers.length)];
+    }
+    return current;
+};
+
 // --- Scoring ---
 const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string, aggressionMultiplier: number, weather: WeatherType): number => {
   const main = actors[0];
@@ -221,7 +229,12 @@ const calculateEventScore = (event: GameEvent, actors: Tribute[], phase: string,
           if (p1Power < p2Power - 5) score *= 0.1; // Suicidal to attack
       }
 
-      if (main.traits.includes('Ruthless')) score *= 2.0;
+      // Ruthless Logic Fix: Only boost if it's a kill and NOT an accident/suicide
+      if (main.traits.includes('Ruthless')) {
+          if (!event.tags?.includes('Accident') && !event.tags?.includes('Suicide')) {
+               score *= 2.0;
+          }
+      }
       if (main.stats.sanity < 30) score *= 2.0;
       
       // Relationship checks for kill
@@ -386,7 +399,8 @@ export const simulatePhase = (
   if (phase === 'Bloodbath') aggression = 5.0;
   else if (daysSinceLastDeath > 2) aggression *= 2.5; // Boring game fixer
   else if (aliveCount <= 4) aggression *= 3.0; // Finale
-  
+  else if (aliveCount <= 2) aggression *= 50.0; // Finale Standoff
+
   if (day > maxDays) aggression *= 10.0; // Sudden death
 
   // --- Event Pool Selection ---
@@ -398,6 +412,7 @@ export const simulatePhase = (
   // --- Action Loop (Turn-Based Queue) ---
   let queue = shuffle(Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).map(t => t.id));
   const processedThisTurn = new Set<string>();
+  const movedThisTurn = new Set<string>();
 
   while (queue.length > 0) {
       const actorId = queue.pop();
@@ -526,12 +541,13 @@ export const simulatePhase = (
               } else {
                   group.forEach(t => moveTribute(t));
               }
+              group.forEach(t => movedThisTurn.add(t.id));
           }
 
           // Items
           if (chosenEvent.itemGain) group[0].inventory.push(...chosenEvent.itemGain);
           
-          // Robust Item Consumption
+          // Robust Item Consumption Fix
           if (chosenEvent.consumesItem) {
              const itemsToRemove = Array.isArray(chosenEvent.consumesItem) 
                 ? chosenEvent.consumesItem 
@@ -609,6 +625,17 @@ export const simulatePhase = (
           });
       }
   }
+
+  // --- Wander Step (Movement Fix) ---
+  // If a tribute didn't move this turn and is alive, they have a chance to wander
+  // This prevents the "Statue Bug" where map coordinates never update if events don't trigger them.
+  tributesMap.forEach(t => {
+      if (t.status === TributeStatus.Alive && !movedThisTurn.has(t.id) && phase !== 'Bloodbath') {
+          if (Math.random() < 0.3) {
+              moveTribute(t);
+          }
+      }
+  });
 
   // --- Cleanup: Arena Events ---
   if (phase === 'Day' && Math.random() < 0.15) {

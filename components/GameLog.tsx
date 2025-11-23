@@ -17,7 +17,8 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history, sel
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [viewIndex, setViewIndex] = useState<number>(-1);
   const [filter, setFilter] = useState<FilterType>('ALL');
-  const [autoScroll, setAutoScroll] = useState(true);
+  // CHANGED: Default autoScroll to false per user request
+  const [autoScroll, setAutoScroll] = useState(false);
 
   useEffect(() => {
     setViewIndex(-1);
