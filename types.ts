@@ -11,24 +11,30 @@ export interface Tribute {
   name: string;
   district: number;
   gender: 'M' | 'F';
-  age: number; // New
+  age: number; 
   status: TributeStatus;
   killCount: number;
   inventory: string[];
-  allianceId?: string; // New
-  // New Deep Sim Stats
+  allianceId?: string; 
+  
+  // Hex Map Coordinates (Axial)
+  coordinates: { q: number; r: number };
+
+  // Betting & Skill
+  odds: string;
+  trainingScore: number;
+
   stats: {
-    health: number; // 0-100 (New: Physical HP)
-    sanity: number; // 0-100 (Low = Hallucinations/Suicide)
-    hunger: number; // 0-100 (High = Starvation)
-    exhaustion: number; // 0-100 (High = Sleep/Vulnerable)
+    health: number; // 0-100 
+    sanity: number; // 0-100 
+    hunger: number; // 0-100 
+    exhaustion: number; // 0-100 
     weaponSkill: number; // 0-100
   };
   traits: Trait[];
-  relationships: Record<string, number>; // id -> -100 (Hate) to 100 (Love)
-  notes: string[]; // Memories/Public Status (e.g., "Injured", "Grieving")
+  relationships: Record<string, number>; 
+  notes: string[]; 
   
-  // Death Details
   deathCause?: string;
   killerId?: string;
 }
@@ -38,32 +44,29 @@ export enum EventType {
   Day = 'Day',
   Night = 'Night',
   Feast = 'Feast',
-  Arena = 'Arena'
+  Arena = 'Arena',
+  Training = 'Training'
 }
 
 export type WeatherType = 'Clear' | 'Rain' | 'Heatwave' | 'Fog' | 'Storm';
 
 export interface GameEvent {
-  text: string; // e.g., "(P1) stabs (P2)."
+  text: string; 
   playerCount: number;
   fatalities: boolean;
-  killerIndices: number[]; // Indices relative to the involved players array (0-based)
-  victimIndices: number[]; // Indices relative to the involved players array
+  killerIndices: number[]; 
+  victimIndices: number[]; 
   
-  // Advanced Logic
-  weight?: number; // Default 1.0. Higher = more likely.
-  tags?: string[]; // 'Kill', 'Social', 'Food', 'Sleep', 'Sanity', 'Heal', 'Desperate', 'Fail'
+  weight?: number; 
+  tags?: string[]; 
   
-  // New Memory/Constraint System
-  itemGain?: string[];      // Items added to P1's inventory
-  itemRequired?: string[];  // Items P1 MUST have for this event
-  consumesItem?: boolean | string[];   // If true removes all required, if array removes specific items
-  traitRequired?: Trait[];  // P1 must have one of these traits
+  itemGain?: string[];      
+  itemRequired?: string[];  
+  consumesItem?: boolean | string[];   
+  traitRequired?: Trait[];  
   
-  // New Health System
-  healthDamage?: number; // Amount of HP P1 loses (for Fail/Accident events)
+  healthDamage?: number; 
 
-  // Logic checks
   condition?: (actors: Tribute[]) => boolean;
 }
 
@@ -71,7 +74,7 @@ export interface LogEntry {
   id: string;
   text: string;
   type: EventType;
-  deathNames?: string[]; // For highlighting deaths
+  deathNames?: string[]; 
 }
 
 export interface RoundHistory {
@@ -81,25 +84,26 @@ export interface RoundHistory {
 }
 
 export interface GameSettings {
-  gameSpeed: number; // ms per round
-  fatalityRate: number; // 0.5 to 2.0
+  gameSpeed: number; 
+  fatalityRate: number; 
   enableWeather: boolean;
 }
 
 export interface GameState {
   tributes: Tribute[];
   day: number;
-  phase: 'Setup' | 'Reaping' | 'Bloodbath' | 'Day' | 'Night' | 'Fallen' | 'Winner';
-  logs: LogEntry[]; // Current round logs
-  history: RoundHistory[]; // Past rounds
-  fallenTributes: Tribute[]; // For the "Fallen" phase
+  phase: 'Setup' | 'Reaping' | 'Training' | 'Bloodbath' | 'Day' | 'Night' | 'Fallen' | 'Winner';
+  logs: LogEntry[]; 
+  history: RoundHistory[]; 
+  fallenTributes: Tribute[]; 
   totalEvents: number;
   gameRunning: boolean;
-  daysSinceLastDeath: number; // For "The Director" pacing
-  sponsorPoints: number; // New User Interaction
+  daysSinceLastDeath: number; 
+  sponsorPoints: number; 
   currentWeather: WeatherType;
   
-  // Pacing Settings
+  userBet: string | null; // ID of tribute user bet on
+
   minDays: number;
   maxDays: number;
   isAutoPlaying: boolean;

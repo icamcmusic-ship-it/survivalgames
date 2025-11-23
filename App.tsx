@@ -7,12 +7,14 @@ import { GameLog } from './components/GameLog';
 import { DeathRecap } from './components/DeathRecap';
 import { StatsModal } from './components/StatsModal';
 import { RelationshipGrid } from './components/RelationshipGrid';
+import { MapModal } from './components/MapModal';
+import { PostGameSummary } from './components/PostGameSummary';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     tributes: [],
     day: 0,
-    phase: 'Setup', // Changed initial phase
+    phase: 'Setup',
     logs: [],
     history: [],
     fallenTributes: [],
@@ -20,6 +22,7 @@ const App: React.FC = () => {
     gameRunning: false,
     daysSinceLastDeath: 0,
     sponsorPoints: 100,
+    userBet: null,
     minDays: 5,
     maxDays: 10,
     isAutoPlaying: false,
@@ -35,6 +38,7 @@ const App: React.FC = () => {
   const [showAliveOnly, setShowAliveOnly] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showRelationships, setShowRelationships] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   // Initialize tributes only on mount if empty
   useEffect(() => {
@@ -43,22 +47,21 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // --- Auto-Play Loop (Fixed Jitter & Dependencies) ---
+  // --- Auto-Play Loop ---
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerNextPhase = () => {
-      // Wrapper to call the advance function
       advancePhase();
   };
 
   useEffect(() => {
-    if (gameState.isAutoPlaying && gameState.phase !== 'Winner' && gameState.phase !== 'Setup') {
+    if (gameState.isAutoPlaying && gameState.phase !== 'Winner' && gameState.phase !== 'Setup' && gameState.phase !== 'Reaping') {
         timerRef.current = setTimeout(triggerNextPhase, gameState.settings.gameSpeed);
     } else {
         if (timerRef.current) clearTimeout(timerRef.current);
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [gameState.isAutoPlaying, gameState.phase, gameState.tributes, gameState.day]); // Depends on phase change to re-trigger next step
+  }, [gameState.isAutoPlaying, gameState.phase, gameState.tributes, gameState.day]);
 
   // --- Game Logic Controls ---
 
@@ -66,28 +69,38 @@ const App: React.FC = () => {
     setGameState(prev => {
         const currentAlive = prev.tributes.filter(t => t.status === TributeStatus.Alive);
 
-        if (currentAlive.length <= 1 && prev.phase !== 'Reaping' && prev.phase !== 'Setup') {
+        if (currentAlive.length <= 1 && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
           return { ...prev, phase: 'Winner', isAutoPlaying: false };
         }
 
         let nextPhase = prev.phase;
         let nextDay = prev.day;
         let showFallen = false;
+        let isTrainingStep = false;
 
         switch (prev.phase) {
           case 'Setup':
             nextPhase = 'Reaping';
             break;
           case 'Reaping':
-            nextPhase = 'Bloodbath';
-            nextDay = 1;
+            nextPhase = 'Training';
+            nextDay = 0;
             break;
+          case 'Training':
+             // Run 3 days of training then go to Bloodbath
+             if (prev.day < 3) {
+                 isTrainingStep = true;
+                 nextDay = prev.day + 1;
+             } else {
+                 nextPhase = 'Bloodbath';
+                 nextDay = 1;
+             }
+             break;
           case 'Bloodbath':
             showFallen = true;
             nextPhase = 'Day'; 
             break;
           case 'Fallen':
-            // Check previous phase from history to determine next
             const lastHistory = prev.history[prev.history.length - 1];
             const lastPhaseType = lastHistory ? lastHistory.phase : 'Bloodbath';
             if (lastPhaseType === 'Bloodbath' || lastPhaseType === 'Night') {
@@ -106,8 +119,8 @@ const App: React.FC = () => {
         }
 
         if (showFallen) {
-           // Fix: Prune history to prevent memory bloat (Keep last 50)
-           const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }].slice(-50);
+           // FIX: Removed history slicing to preserve full logs
+           const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }];
            return {
                ...prev,
                history: newHistory,
@@ -115,13 +128,24 @@ const App: React.FC = () => {
            };
         }
 
-        // Determine Weather for the round
+        // Handle Training Simulation Distinctly
+        if (prev.phase === 'Training' && isTrainingStep) {
+             const simResult = simulateTraining(prev.tributes);
+             return {
+                 ...prev,
+                 day: nextDay,
+                 tributes: simResult.updatedTributes,
+                 logs: [...prev.logs, ...simResult.logs]
+             };
+        }
+
+        // Determine Weather
         let nextWeather = prev.currentWeather;
         if (prev.settings.enableWeather && nextPhase === 'Day' && Math.random() < 0.3) {
             const weathers: WeatherType[] = ['Clear', 'Rain', 'Heatwave', 'Fog', 'Storm'];
             nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
         } else if (nextPhase === 'Night') {
-            nextWeather = 'Clear'; // Nights usually clear unless storm persists
+            nextWeather = 'Clear'; 
         }
 
         const result = simulatePhase(
@@ -132,33 +156,39 @@ const App: React.FC = () => {
             prev.minDays,
             prev.maxDays,
             nextWeather,
-            prev.settings.fatalityRate
+            prev.settings.fatalityRate,
+            prev.settings.enableWeather
         );
 
         let newHistory = [...prev.history];
-        if (prev.phase === 'Reaping') {
-            newHistory.push({ phase: 'Reaping', day: 0, logs: prev.logs });
+        if (prev.phase === 'Reaping' || (prev.phase === 'Training' && nextPhase === 'Bloodbath')) {
+             // Archive pre-game logs
+             newHistory.push({ phase: prev.phase, day: prev.day, logs: prev.logs });
         }
 
-        // Add weather log if changed
         if (nextWeather !== prev.currentWeather && nextPhase === 'Day') {
             result.logs.unshift({
-                id: `weather-${Date.now()}`,
+                id: `weather-${crypto.randomUUID()}`,
                 text: `<span class="text-blue-300 font-bold uppercase">WEATHER UPDATE:</span> The arena is shifting. ${nextWeather} conditions detected.`,
                 type: 'Day' as any
             });
         }
+        
+        // Fix Director Pacing Reset
+        const newDaysSinceLastDeath = result.deathsInPhase > 0 
+            ? Math.max(0, prev.daysSinceLastDeath - 2) 
+            : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0);
 
         return {
           ...prev,
           tributes: result.updatedTributes,
           phase: nextPhase as any,
           day: nextDay,
-          logs: result.logs,
+          logs: nextPhase === 'Bloodbath' ? result.logs : result.logs, // Clear logs on new phase usually handled by history push
           history: newHistory,
           fallenTributes: result.fallen,
           totalEvents: prev.totalEvents + result.logs.length,
-          daysSinceLastDeath: result.deathsInPhase > 0 ? 0 : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0),
+          daysSinceLastDeath: newDaysSinceLastDeath,
           sponsorPoints: prev.sponsorPoints + 25,
           currentWeather: nextWeather
         };
@@ -178,6 +208,7 @@ const App: React.FC = () => {
         gameRunning: false,
         daysSinceLastDeath: 0,
         sponsorPoints: 100,
+        userBet: null,
         minDays: 5,
         maxDays: 10,
         isAutoPlaying: false,
@@ -187,23 +218,18 @@ const App: React.FC = () => {
     setSponsorMode(false);
   };
 
-  // --- Actions ---
-
-  const handleSimulateTraining = () => {
-      const logs = simulateTraining(gameState.tributes);
-      setGameState(prev => ({
-          ...prev,
-          logs: [...prev.logs, ...logs]
-      }));
-  };
-
   const handleSponsor = (tributeId: string) => {
       if (gameState.sponsorPoints < 25) return;
+      
+      const target = gameState.tributes.find(t => t.id === tributeId);
+      // FIX: Limit Check
+      if (target && target.inventory.length >= 4) return;
 
       setGameState(prev => {
           const updatedTributes = prev.tributes.map(t => {
               if (t.id === tributeId && t.status === TributeStatus.Alive) {
                    const items = ['Bread', 'Water', 'Bandages', 'Antidote', 'Spear'];
+                   // Ensure item exists in ITEM_VALUES
                    const item = items[Math.floor(Math.random() * items.length)];
                    return {
                        ...t,
@@ -214,10 +240,9 @@ const App: React.FC = () => {
               return t;
           });
           
-          const targetName = updatedTributes.find(t => t.id === tributeId)?.name;
           const newLog = {
-              id: `sponsor-${Date.now()}`,
-              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers a <span class="text-white">${updatedTributes.find(t => t.id === tributeId)?.inventory.slice(-1)[0]}</span> to <span class="text-gold">${targetName}</span>.`,
+              id: `sponsor-${crypto.randomUUID()}`,
+              text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers a <span class="text-white">${updatedTributes.find(t => t.id === tributeId)?.inventory.slice(-1)[0]}</span> to <span class="text-gold">${updatedTributes.find(t => t.id === tributeId)?.name}</span>.`,
               type: prev.phase === 'Bloodbath' ? 'Bloodbath' : (prev.phase === 'Night' ? 'Night' : 'Day') as any
           };
 
@@ -232,7 +257,6 @@ const App: React.FC = () => {
 
   const triggerArenaEvent = (type: string, cost: number) => {
       if (gameState.sponsorPoints < cost) return;
-      
       let text = '';
       if (type === 'Rain') text = "The Gamemakers have triggered a torrential downpour.";
       if (type === 'Feast') text = "The Gamemakers have prepared a Feast.";
@@ -241,9 +265,13 @@ const App: React.FC = () => {
       setGameState(prev => ({
           ...prev,
           sponsorPoints: prev.sponsorPoints - cost,
-          logs: [...prev.logs, { id: `gm-${Date.now()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }],
+          logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }],
           currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather
       }));
+  };
+
+  const handleBet = (id: string) => {
+      setGameState(prev => ({ ...prev, userBet: id }));
   };
 
   // --- View Helpers ---
@@ -253,46 +281,42 @@ const App: React.FC = () => {
     ? gameState.tributes.filter(t => t.status === TributeStatus.Alive)
     : gameState.tributes;
 
-  // Helper to group tributes for setup
   const districts = Array.from(new Set(gameState.tributes.map(t => t.district)));
 
   return (
     <div className="h-screen flex flex-col bg-gamemaker font-sans overflow-hidden selection:bg-gold selection:text-black">
         
-        {/* Relationship Modal */}
-        {showRelationships && (
-            <RelationshipGrid tributes={gameState.tributes} onClose={() => setShowRelationships(false)} />
-        )}
-
-        {/* How To Play Modal */}
+        {/* Modals */}
+        {showRelationships && <RelationshipGrid tributes={gameState.tributes} onClose={() => setShowRelationships(false)} />}
+        {showMap && <MapModal tributes={gameState.tributes} onClose={() => setShowMap(false)} />}
+        
         {showHowToPlay && (
             <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
                 <div className="bg-panel border border-gold rounded-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
                     <h2 className="font-display text-2xl text-gold mb-4 uppercase font-bold">Training Guide</h2>
                     <div className="space-y-4 text-gray-300 text-sm font-mono">
-                        <p>Welcome to the Battle Royale Simulator. You act as the Gamemaker, observing 24 tributes fight to the death.</p>
+                        <p>Welcome to the Battle Royale Simulator v3.1.</p>
                         <ul className="list-disc pl-5 space-y-2">
-                            <li><strong className="text-white">Traits:</strong> Tributes have personality traits. <span className="text-red-400">Ruthless</span> tributes kill more, <span className="text-blue-400">Survivalists</span> find food. Some traits have synergies (e.g., Coward + Friendly).</li>
-                            <li><strong className="text-white">Stats:</strong> Health, Hunger, Sanity, and Exhaustion drive behavior. Starving tributes take desperate risks. Low sanity causes hallucinations.</li>
-                            <li><strong className="text-white">Alliances:</strong> Tributes can form teams. Watch for color indicators on their cards. Careers (1, 2, 4) often start allied.</li>
-                            <li><strong className="text-white">Sponsoring:</strong> Enable "Sponsor Mode" to send items. Use your points wisely.</li>
-                            <li><strong className="text-white">Gamemaker Console:</strong> Spend points to alter the weather or trigger arena events.</li>
+                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds!</li>
+                            <li><strong className="text-white">Map System:</strong> Tributes move on a Hex grid. They must be adjacent to interact.</li>
+                            <li><strong className="text-white">Bloodbath:</strong> The start is now extremely lethal. 60% of events are fatal.</li>
+                            <li><strong className="text-white">Training:</strong> A 3-day pre-game phase to build stats and alliances.</li>
+                            <li><strong className="text-white">Traits & Synergies:</strong> Combinations like "Coward + Friendly" create unique behaviors.</li>
                         </ul>
-                        <p className="mt-4">Click "Proceed" to advance time, or "Auto" to watch the chaos unfold.</p>
+                        <button onClick={() => setShowHowToPlay(false)} className="mt-6 w-full py-2 bg-gray-800 hover:bg-gold hover:text-black font-bold uppercase rounded transition-colors">Close Guide</button>
                     </div>
-                    <button onClick={() => setShowHowToPlay(false)} className="mt-6 w-full py-2 bg-gray-800 hover:bg-gold hover:text-black font-bold uppercase rounded transition-colors">Close Guide</button>
                 </div>
             </div>
         )}
 
-        {/* Setup Phase Screen (Improved Reaping UI) */}
+        {/* Setup Phase */}
         {gameState.phase === 'Setup' && (
              <div className="fixed inset-0 z-40 bg-gamemaker flex flex-col items-center justify-center p-4">
                  <div className="max-w-7xl w-full h-full max-h-[95vh] bg-panel border border-gray-800 rounded-2xl p-6 shadow-2xl animate-fade-in flex flex-col">
                      <div className="flex justify-between items-center mb-6">
                          <div>
                             <h1 className="font-display text-4xl font-black text-white uppercase tracking-wider">The Reaping</h1>
-                            <p className="text-gray-500 font-mono text-sm">Select Your Tributes</p>
+                            <p className="text-gray-500 font-mono text-sm">Configure Simulation</p>
                          </div>
                          <div className="flex gap-4">
                              <div className="bg-gray-800 p-2 rounded border border-gray-700 text-xs flex gap-4">
@@ -305,71 +329,26 @@ const App: React.FC = () => {
                                         className="accent-gold w-20"
                                      />
                                  </label>
-                                 <label className="flex items-center gap-2">
-                                     <span className="text-gray-400">Speed</span>
-                                     <select 
-                                        value={gameState.settings.gameSpeed}
-                                        onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, gameSpeed: parseInt(e.target.value)}}))}
-                                        className="bg-gray-900 border border-gray-700 rounded px-1"
-                                     >
-                                         <option value="3000">Slow</option>
-                                         <option value="2000">Normal</option>
-                                         <option value="500">Fast</option>
-                                     </select>
-                                 </label>
                              </div>
                              <button onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))} className="px-4 py-2 border border-gold text-gold hover:bg-gold hover:text-black rounded text-xs uppercase font-bold transition-all">
-                                 Regenerate
+                                 Regenerate Tributes
                              </button>
                          </div>
                      </div>
-                     
-                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6">
-                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                             {districts.sort((a,b) => a-b).map(d => {
-                                 const dTribs = gameState.tributes.filter(t => t.district === d);
-                                 return (
-                                     <div key={d} className="bg-black/30 border border-gray-800 rounded-lg p-3">
-                                         <h3 className="text-gray-500 font-bold text-xs uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">District {d}</h3>
-                                         <div className="space-y-3">
-                                             {dTribs.map(t => (
-                                                 <div key={t.id} className="flex gap-3 items-center">
-                                                     <div className={`w-8 h-8 rounded flex items-center justify-center border ${t.gender === 'M' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'}`}>
-                                                        <span className="text-[10px] font-bold text-gray-400">{t.gender}</span>
-                                                     </div>
-                                                     <div className="flex-1 min-w-0">
-                                                         <div className="flex justify-between items-center">
-                                                             <span className="text-gray-300 font-bold text-xs truncate">{t.name}</span>
-                                                             <span className={`text-[9px] font-mono ${t.age < 14 ? 'text-red-400' : 'text-green-500'}`}>{t.age}y</span>
-                                                         </div>
-                                                         <div className="flex flex-wrap gap-1 mt-1">
-                                                             {t.traits.map(trait => (
-                                                                 <span key={trait} className="text-[8px] bg-gray-800 text-gray-400 px-1 rounded border border-gray-700">{trait}</span>
-                                                             ))}
-                                                         </div>
-                                                     </div>
-                                                 </div>
-                                             ))}
-                                         </div>
-                                     </div>
-                                 );
-                             })}
+                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6 grid grid-cols-1 gap-4">
+                         {/* Simple List Preview */}
+                         <div className="text-gray-400 font-mono text-center mt-20">
+                            Tributes Generated. Review Odds and Stats in next step.
                          </div>
                      </div>
-                     
-                     <div className="flex gap-4">
-                         <button onClick={handleSimulateTraining} className="flex-1 py-3 border border-blue-900 text-blue-500 bg-blue-900/10 hover:bg-blue-900/30 rounded-xl text-sm uppercase font-bold transition-colors">
-                             Simulate Training Week (Build Relationships)
-                         </button>
-                         <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping', logs: [{ id: 'init', text: "The Tributes rise on their podiums...", type: 'Bloodbath' as any }] }))} className="flex-[2] py-3 bg-gold hover:bg-yellow-400 text-black font-display font-black text-lg uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all transform hover:scale-[1.01]">
-                             Begin The Games
-                         </button>
-                     </div>
+                     <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping' }))} className="w-full py-3 bg-gold hover:bg-yellow-400 text-black font-display font-black text-lg uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all">
+                         Proceed to Betting
+                     </button>
                  </div>
              </div>
         )}
-        
-        {/* Header / Status Bar */}
+
+        {/* Header */}
         <header className="h-16 shrink-0 bg-panel border-b border-gray-800 flex items-center justify-between px-6 shadow-md z-20 relative">
             <div className="flex items-center gap-4">
                 <div className="w-8 h-8 rounded-full bg-gold flex items-center justify-center">
@@ -378,48 +357,28 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>Sim v3.1</span>
-                        <span className="text-gray-700">•</span>
-                        <span>{gameState.phase}</span>
+                        <span>{gameState.phase} {gameState.phase === 'Training' ? `Day ${gameState.day + 1}` : (gameState.day > 0 ? `Day ${gameState.day}` : '')}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Stats Counters */}
             <div className="flex items-center gap-8">
                  <div className="hidden lg:flex items-center gap-4">
-                    <div className="text-center group relative cursor-help">
+                    <div className="text-center">
                         <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Funds</div>
                         <div className="font-display font-bold text-xl text-blue-400">{gameState.sponsorPoints}</div>
                     </div>
-                    <button 
-                        onClick={() => setSponsorMode(!sponsorMode)}
-                        className={`
-                            flex items-center gap-2 px-3 py-1 rounded border text-[10px] font-mono uppercase font-bold transition-all
-                            ${sponsorMode 
-                                ? 'bg-blue-900/50 border-blue-500 text-blue-200 shadow-[0_0_10px_rgba(59,130,246,0.3)]' 
-                                : 'bg-gray-900/50 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
-                            }
-                        `}
-                    >
-                        <span className={`w-2 h-2 rounded-full ${sponsorMode ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`}></span>
+                    <button onClick={() => setSponsorMode(!sponsorMode)} className={`px-3 py-1 rounded border text-[10px] font-mono uppercase font-bold transition-all ${sponsorMode ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-gray-900/50 border-gray-700 text-gray-500'}`}>
                         {sponsorMode ? 'Sponsor: ON' : 'Sponsor: OFF'}
                     </button>
-                    <button 
-                        onClick={() => setShowRelationships(true)}
-                        className="text-gray-500 hover:text-white px-2 py-1 rounded border border-gray-700 hover:border-gray-500 text-[10px] font-mono uppercase font-bold"
-                    >
+                    <button onClick={() => setShowMap(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
+                        Map
+                    </button>
+                    <button onClick={() => setShowRelationships(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
                         Intel
                     </button>
-                    <button onClick={() => setShowHowToPlay(true)} className="text-gray-500 hover:text-white"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
                  </div>
-
                  <div className="w-px h-8 bg-gray-800 hidden lg:block"></div>
-                 <div className="text-center">
-                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Day</div>
-                    <div className="font-display font-bold text-xl text-white">{gameState.day}</div>
-                 </div>
-                 <div className="w-px h-8 bg-gray-800"></div>
                  <div className="text-center">
                     <div className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Alive</div>
                     <div className="font-display font-bold text-xl text-green-500">{aliveCount}</div>
@@ -431,18 +390,11 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* Controls */}
             <div className="flex items-center gap-3">
-                {gameState.phase !== 'Winner' && gameState.phase !== 'Setup' && gameState.phase !== 'Reaping' && (
+                {!['Winner', 'Setup', 'Reaping'].includes(gameState.phase) && (
                      <button 
                         onClick={() => setGameState(prev => ({ ...prev, isAutoPlaying: !prev.isAutoPlaying }))}
-                        className={`
-                             hidden md:flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all border
-                             ${gameState.isAutoPlaying 
-                                 ? 'bg-red-900/50 border-red-500 text-red-200' 
-                                 : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'
-                             }
-                        `}
+                        className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all border ${gameState.isAutoPlaying ? 'bg-red-900/50 border-red-500 text-red-200' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
                      >
                          {gameState.isAutoPlaying ? '■ Stop' : '▶ Auto'}
                      </button>
@@ -451,72 +403,57 @@ const App: React.FC = () => {
                 <button 
                     onClick={advancePhase}
                     disabled={gameState.phase === 'Winner' || gameState.phase === 'Setup'}
-                    className={`
-                        hidden md:flex items-center gap-2 px-6 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all
-                        ${gameState.phase === 'Winner' || gameState.phase === 'Setup'
-                            ? 'bg-gray-800 text-gray-600 cursor-not-allowed' 
-                            : 'bg-white text-black hover:bg-gold hover:shadow-[0_0_15px_rgba(251,191,36,0.5)] active:scale-95'
-                        }
-                    `}
+                    className={`hidden md:flex items-center gap-2 px-6 py-2 rounded-full font-mono font-bold uppercase text-xs tracking-widest transition-all ${gameState.phase === 'Winner' || gameState.phase === 'Setup' ? 'bg-gray-800 text-gray-600 cursor-not-allowed' : 'bg-white text-black hover:bg-gold'}`}
                 >
-                <span>{gameState.phase === 'Reaping' ? 'Start Games' : 'Proceed'}</span>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                    {gameState.phase === 'Reaping' ? 'Start Training' : (gameState.phase === 'Training' && gameState.day >= 3 ? 'Start Bloodbath' : 'Proceed')}
                 </button>
             </div>
         </header>
 
-        {/* Main Content Area */}
+        {/* Main Content */}
         <main className="flex-1 flex overflow-hidden relative">
-            {/* Background Texture */}
             <div className="absolute inset-0 opacity-5 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
-
-            {/* Weather Overlay */}
-            {gameState.phase === 'Day' && gameState.currentWeather === 'Rain' && (
-                <div className="absolute inset-0 pointer-events-none bg-blue-900/10 z-0 animate-pulse-slow"></div>
-            )}
-            {gameState.phase === 'Day' && gameState.currentWeather === 'Heatwave' && (
-                <div className="absolute inset-0 pointer-events-none bg-orange-500/10 z-0 mix-blend-overlay"></div>
-            )}
-            {gameState.phase === 'Day' && gameState.currentWeather === 'Fog' && (
-                <div className="absolute inset-0 pointer-events-none bg-gray-500/20 z-0 backdrop-blur-[2px]"></div>
-            )}
-
+            
+            {gameState.phase === 'Day' && gameState.currentWeather === 'Rain' && <div className="absolute inset-0 pointer-events-none bg-blue-900/10 z-0 animate-pulse-slow"></div>}
+            
             {gameState.phase === 'Winner' && (
-                <StatsModal 
-                    winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.tributes[0]} 
-                    duration={gameState.day} 
-                    tributes={gameState.tributes}
-                    history={gameState.history}
-                    onRestart={handleRestart}
-                />
+                <div className="w-full h-full flex flex-col items-center justify-center z-20">
+                    <StatsModal 
+                        winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.tributes[0]} 
+                        duration={gameState.day} 
+                        tributes={gameState.tributes}
+                        history={gameState.history}
+                        onRestart={handleRestart}
+                    />
+                    {/* Post Game Table below the modal usually, but let's put it inside the content area behind modal for now or accessible via the modal */}
+                </div>
             )}
 
             {gameState.phase === 'Fallen' ? (
                  <div className="w-full flex-1 relative z-10">
-                    <DeathRecap 
-                        fallen={gameState.fallenTributes} 
-                        onNext={() => {
-                            advancePhase();
-                        }} 
-                    />
+                    <DeathRecap fallen={gameState.fallenTributes} onNext={advancePhase} />
+                    <div className="absolute bottom-0 w-full px-20 pb-10">
+                        <PostGameSummary tributes={gameState.tributes} winner={gameState.tributes.find(t => t.status === TributeStatus.Alive) || gameState.tributes[0]} />
+                    </div>
                  </div>
             ) : (
                 <div className="w-full h-full flex flex-col lg:flex-row gap-6 p-6 relative z-10">
-                    {/* Left: Arena Grid */}
+                    {/* Tributes Grid */}
                     <div className="flex-1 lg:flex-[2] flex flex-col min-h-0">
                         <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
                              <div className="flex items-center gap-4">
-                                 <h2 className="font-display text-white text-xl font-bold">Tributes</h2>
-                                 <span className="text-xs font-mono text-gray-500 uppercase">{aliveCount} Alive / 24</span>
+                                 <h2 className="font-display text-white text-xl font-bold">
+                                     {gameState.phase === 'Reaping' ? 'Place Your Bets' : 'Tributes'}
+                                 </h2>
+                                 {gameState.userBet && (
+                                     <span className="text-xs font-mono text-gold border border-gold/30 rounded px-2 py-1">
+                                         Bet Placed on: {gameState.tributes.find(t => t.id === gameState.userBet)?.name}
+                                     </span>
+                                 )}
                              </div>
-                             
                              <div className="flex items-center gap-2">
-                                {/* Alive Filter */}
-                                <button 
-                                    onClick={() => setShowAliveOnly(!showAliveOnly)}
-                                    className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${showAliveOnly ? 'bg-green-900 border-green-600 text-green-100' : 'bg-transparent border-gray-700 text-gray-500'}`}
-                                >
-                                    {showAliveOnly ? 'Showing Alive Only' : 'Show All'}
+                                <button onClick={() => setShowAliveOnly(!showAliveOnly)} className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${showAliveOnly ? 'bg-green-900 border-green-600 text-green-100' : 'bg-transparent border-gray-700 text-gray-500'}`}>
+                                    {showAliveOnly ? 'Alive Only' : 'Show All'}
                                 </button>
                              </div>
                         </div>
@@ -527,32 +464,29 @@ const App: React.FC = () => {
                                     key={t.id} 
                                     tribute={t} 
                                     onSponsor={handleSponsor}
+                                    onBet={handleBet}
                                     canSponsor={gameState.sponsorPoints >= 25 && t.status === TributeStatus.Alive}
                                     sponsorMode={sponsorMode}
+                                    showOdds={gameState.phase === 'Reaping' || gameState.phase === 'Training'}
+                                    isUserBet={gameState.userBet === t.id}
                                 />
                                 ))}
                             </div>
                         </div>
                         
-                        {/* Gamemaker Console (Bottom Left) */}
                         {sponsorMode && (
                             <div className="mt-4 p-4 bg-gray-900/80 border border-blue-900 rounded-xl animate-fade-in">
                                 <div className="text-[10px] font-mono uppercase text-blue-400 font-bold mb-2">Gamemaker Console</div>
                                 <div className="flex gap-2">
                                     <button onClick={() => triggerArenaEvent('Rain', 50)} className="px-3 py-2 bg-blue-900/30 border border-blue-800 rounded text-xs text-blue-200 hover:bg-blue-800">Trigger Rain (50)</button>
                                     <button onClick={() => triggerArenaEvent('Mutts', 200)} className="px-3 py-2 bg-red-900/30 border border-red-800 rounded text-xs text-red-200 hover:bg-red-800">Release Mutts (200)</button>
-                                    <button onClick={() => triggerArenaEvent('Feast', 300)} className="px-3 py-2 bg-orange-900/30 border border-orange-800 rounded text-xs text-orange-200 hover:bg-orange-800">Prepare Feast (300)</button>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Right: Logs */}
+                    {/* Logs */}
                     <div className="h-[40vh] lg:h-auto lg:flex-1 flex flex-col min-h-0">
-                        <div className="mb-2 flex items-center justify-between text-xs font-mono text-gray-500 uppercase">
-                             <span>Current Conditions</span>
-                             <span className={`${gameState.currentWeather === 'Clear' ? 'text-gray-400' : 'text-blue-400'}`}>{gameState.currentWeather}</span>
-                        </div>
                         <GameLog 
                             logs={gameState.logs} 
                             phase={gameState.phase} 
@@ -561,7 +495,7 @@ const App: React.FC = () => {
                         />
                     </div>
 
-                    {/* Mobile Floating Button */}
+                    {/* Mobile FAB */}
                     <button 
                         onClick={advancePhase}
                         disabled={gameState.phase === 'Winner'}

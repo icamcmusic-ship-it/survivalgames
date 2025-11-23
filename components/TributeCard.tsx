@@ -5,8 +5,11 @@ import { Tribute, TributeStatus } from '../types';
 interface TributeCardProps {
   tribute: Tribute;
   onSponsor?: (id: string) => void;
+  onBet?: (id: string) => void;
   canSponsor?: boolean;
   sponsorMode: boolean;
+  showOdds?: boolean;
+  isUserBet?: boolean;
 }
 
 const DISTRICT_COLORS: Record<number, string> = {
@@ -24,7 +27,6 @@ const DISTRICT_COLORS: Record<number, string> = {
   12: 'border-slate-400',
 };
 
-// Helper for alliance color
 const stringToColor = (str: string) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -38,7 +40,6 @@ const stringToColor = (str: string) => {
   return color;
 }
 
-// Helper to get primary mood
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
@@ -54,16 +55,14 @@ const getMoodBadge = (tribute: Tribute) => {
     return null;
 };
 
-export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, canSponsor, sponsorMode }) => {
+export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, onBet, canSponsor, sponsorMode, showOdds, isUserBet }) => {
   const isDead = tribute.status === TributeStatus.Dead;
   const districtColor = DISTRICT_COLORS[tribute.district] || 'border-gray-500';
 
-  // Calculate status bars
   const hungerPercent = Math.min(100, tribute.stats.hunger);
   const sanityPercent = Math.min(100, tribute.stats.sanity);
   const healthPercent = Math.min(100, tribute.stats.health);
 
-  // Alliance Color
   const allianceColor = tribute.allianceId && !isDead ? stringToColor(tribute.allianceId) : null;
 
   return (
@@ -73,36 +72,46 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
         ? 'bg-black/80 border-gray-800 opacity-60 grayscale' 
         : (sponsorMode ? 'bg-panel border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1')
       }
+      ${isUserBet ? 'ring-2 ring-gold shadow-[0_0_15px_rgba(251,191,36,0.4)]' : ''}
     `}>
-      {/* Alliance Indicator */}
       {allianceColor && (
           <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-1/2 rounded-r-md" style={{ backgroundColor: allianceColor }} title="In Alliance"></div>
       )}
 
-      {/* Status Indicator Dot (Corner) */}
       <div className={`absolute top-3 right-3 w-2 h-2 rounded-full ${isDead ? 'bg-gray-700' : 'bg-green-500 animate-pulse'}`}></div>
       
-      {/* Mood Badge */}
       {!isDead && getMoodBadge(tribute)}
 
-      {/* Sponsor Overlay Button (Strictly Controlled by Mode) */}
-      {!isDead && canSponsor && (
-          <button 
-            onClick={(e) => { e.stopPropagation(); onSponsor?.(tribute.id); }}
-            className={`
-                absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[1px] transition-opacity duration-200
-                ${sponsorMode ? 'opacity-100 bg-blue-900/20' : 'opacity-0 pointer-events-none'}
-            `}
-          >
-             <div className="bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-110 transition-transform">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
-                SPONSOR
-             </div>
-          </button>
+      {/* Bet Badge */}
+      {isUserBet && (
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gold text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-30">
+              YOUR BET
+          </div>
+      )}
+
+      {/* Interaction Overlay */}
+      {!isDead && (
+          <div className={`absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[1px] transition-opacity duration-200 ${sponsorMode || (showOdds && !isUserBet) ? 'opacity-100 bg-black/40' : 'opacity-0 pointer-events-none'}`}>
+             {sponsorMode && canSponsor && (
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); onSponsor?.(tribute.id); }}
+                    className="bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-110 transition-transform"
+                 >
+                    SPONSOR
+                 </button>
+             )}
+             {showOdds && !isUserBet && onBet && (
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); onBet(tribute.id); }}
+                    className="bg-purple-600 text-white font-bold font-mono text-xs px-4 py-2 rounded-full shadow-lg hover:bg-purple-500 transition-colors"
+                 >
+                    BET ({tribute.odds})
+                 </button>
+             )}
+          </div>
       )}
 
       <div className="flex items-center gap-3 mb-2 pl-1">
-        {/* Avatar */}
         <div className={`
           relative w-12 h-12 shrink-0 rounded-lg border-2 flex items-center justify-center bg-gray-900 overflow-hidden
           ${isDead ? 'border-gray-700' : districtColor}
@@ -116,8 +125,6 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
              </svg>
           )}
-          
-          {/* Dead Overlay on Avatar */}
           {isDead && (
              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
                <svg className="w-8 h-8 text-red-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
@@ -125,12 +132,9 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
           )}
         </div>
 
-        {/* Text Info */}
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-start">
             <span className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Dist {tribute.district}</span>
-            
-            {/* Kill Count Badge */}
             {tribute.killCount > 0 && (
               <span className="flex items-center gap-1 text-[10px] font-bold text-blood bg-blood/10 px-1.5 py-0.5 rounded border border-blood/20">
                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 4h3a3 3 0 006 0h3a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45 4a2.5 2.5 0 10-4.9 0h4.9zM12 9a1 1 0 100 2h3a1 1 0 100-2h-3zm-1 4a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
@@ -141,14 +145,15 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
           <h3 className={`text-sm font-medium leading-tight break-words ${isDead ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
             {tribute.name}
           </h3>
-          <div className="text-[9px] text-gray-500 font-mono mt-0.5">{tribute.age} Years Old</div>
+          <div className="flex justify-between items-center mt-0.5">
+            <span className="text-[9px] text-gray-500 font-mono">{tribute.age} Years</span>
+            {showOdds && !isDead && <span className="text-[9px] text-gold font-mono font-bold">{tribute.odds}</span>}
+          </div>
         </div>
       </div>
 
-      {/* New Stats & Traits Section */}
       {!isDead && (
         <div className="space-y-2">
-          {/* Traits */}
           <div className="flex flex-wrap gap-1">
             {tribute.traits.map(trait => (
               <span key={trait} className="px-1.5 py-0.5 rounded text-[9px] uppercase font-bold bg-gray-800 text-gray-400 border border-gray-700">
@@ -157,9 +162,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
             ))}
           </div>
           
-          {/* Need Bars */}
           <div className="space-y-1">
-            {/* Health Bar */}
              <div>
                 <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
                    <span>Health</span>
@@ -171,34 +174,20 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
                   ></div>
                 </div>
             </div>
-
             <div className="grid grid-cols-2 gap-2">
                 <div>
-                    <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
-                    <span>Sanity</span>
-                    </div>
-                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
-                    <div 
-                        className={`h-full rounded-full ${tribute.stats.sanity < 30 ? 'bg-purple-500' : 'bg-blue-500'}`} 
-                        style={{ width: `${sanityPercent}%` }}
-                    ></div>
+                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden mt-1">
+                    <div className={`h-full rounded-full ${tribute.stats.sanity < 30 ? 'bg-purple-500' : 'bg-blue-500'}`} style={{ width: `${sanityPercent}%` }}></div>
                     </div>
                 </div>
                 <div>
-                    <div className="flex justify-between text-[9px] text-gray-500 mb-0.5 uppercase">
-                    <span>Hunger</span>
-                    </div>
-                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
-                    <div 
-                        className={`h-full rounded-full ${tribute.stats.hunger > 80 ? 'bg-red-500' : 'bg-amber-500'}`} 
-                        style={{ width: `${hungerPercent}%` }}
-                    ></div>
+                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden mt-1">
+                    <div className={`h-full rounded-full ${tribute.stats.hunger > 80 ? 'bg-red-500' : 'bg-amber-500'}`} style={{ width: `${hungerPercent}%` }}></div>
                     </div>
                 </div>
             </div>
           </div>
 
-          {/* Inventory */}
           {tribute.inventory.length > 0 && (
             <div className="mt-2 pt-2 border-t border-gray-800">
                 <div className="flex flex-wrap gap-1">
