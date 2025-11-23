@@ -6,6 +6,7 @@ import { TributeCard } from './components/TributeCard';
 import { GameLog } from './components/GameLog';
 import { DeathRecap } from './components/DeathRecap';
 import { StatsModal } from './components/StatsModal';
+import { RelationshipGrid } from './components/RelationshipGrid';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
@@ -33,6 +34,7 @@ const App: React.FC = () => {
   const [sponsorMode, setSponsorMode] = useState(false);
   const [showAliveOnly, setShowAliveOnly] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showRelationships, setShowRelationships] = useState(false);
 
   // Initialize tributes only on mount if empty
   useEffect(() => {
@@ -251,9 +253,17 @@ const App: React.FC = () => {
     ? gameState.tributes.filter(t => t.status === TributeStatus.Alive)
     : gameState.tributes;
 
+  // Helper to group tributes for setup
+  const districts = Array.from(new Set(gameState.tributes.map(t => t.district)));
+
   return (
     <div className="h-screen flex flex-col bg-gamemaker font-sans overflow-hidden selection:bg-gold selection:text-black">
         
+        {/* Relationship Modal */}
+        {showRelationships && (
+            <RelationshipGrid tributes={gameState.tributes} onClose={() => setShowRelationships(false)} />
+        )}
+
         {/* How To Play Modal */}
         {showHowToPlay && (
             <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
@@ -264,6 +274,7 @@ const App: React.FC = () => {
                         <ul className="list-disc pl-5 space-y-2">
                             <li><strong className="text-white">Traits:</strong> Tributes have personality traits. <span className="text-red-400">Ruthless</span> tributes kill more, <span className="text-blue-400">Survivalists</span> find food. Some traits have synergies (e.g., Coward + Friendly).</li>
                             <li><strong className="text-white">Stats:</strong> Health, Hunger, Sanity, and Exhaustion drive behavior. Starving tributes take desperate risks. Low sanity causes hallucinations.</li>
+                            <li><strong className="text-white">Alliances:</strong> Tributes can form teams. Watch for color indicators on their cards. Careers (1, 2, 4) often start allied.</li>
                             <li><strong className="text-white">Sponsoring:</strong> Enable "Sponsor Mode" to send items. Use your points wisely.</li>
                             <li><strong className="text-white">Gamemaker Console:</strong> Spend points to alter the weather or trigger arena events.</li>
                         </ul>
@@ -274,61 +285,86 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {/* Setup Phase Screen */}
+        {/* Setup Phase Screen (Improved Reaping UI) */}
         {gameState.phase === 'Setup' && (
              <div className="fixed inset-0 z-40 bg-gamemaker flex flex-col items-center justify-center p-4">
-                 <div className="max-w-4xl w-full bg-panel border border-gray-800 rounded-2xl p-8 shadow-2xl animate-fade-in">
-                     <h1 className="font-display text-5xl font-black text-white text-center mb-2 uppercase tracking-wider">The Reaping</h1>
-                     <p className="text-center text-gray-500 font-mono mb-8">District Selection & Training Center</p>
-                     
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-                         <div className="col-span-2 grid grid-cols-4 gap-2 max-h-64 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded">
-                             {gameState.tributes.map(t => (
-                                 <div key={t.id} className={`text-xs p-2 rounded border ${t.gender === 'M' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'} text-center`}>
-                                     <div className="font-bold text-gray-300">{t.name}</div>
-                                     <div className="text-[9px] text-gray-500">{t.traits.join(', ')}</div>
-                                 </div>
-                             ))}
+                 <div className="max-w-7xl w-full h-full max-h-[95vh] bg-panel border border-gray-800 rounded-2xl p-6 shadow-2xl animate-fade-in flex flex-col">
+                     <div className="flex justify-between items-center mb-6">
+                         <div>
+                            <h1 className="font-display text-4xl font-black text-white uppercase tracking-wider">The Reaping</h1>
+                            <p className="text-gray-500 font-mono text-sm">Select Your Tributes</p>
                          </div>
-                         <div className="space-y-4">
-                             <div className="bg-gray-800 p-4 rounded border border-gray-700">
-                                 <h3 className="font-bold text-gold text-xs uppercase mb-2">Simulation Config</h3>
-                                 <div className="space-y-2 text-xs">
-                                     <label className="flex items-center justify-between">
-                                         <span className="text-gray-400">Fatality Rate</span>
-                                         <input 
-                                            type="range" min="0.5" max="2.0" step="0.1" 
-                                            value={gameState.settings.fatalityRate}
-                                            onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, fatalityRate: parseFloat(e.target.value)}}))}
-                                            className="accent-gold"
-                                         />
-                                     </label>
-                                     <label className="flex items-center justify-between">
-                                         <span className="text-gray-400">Game Speed</span>
-                                         <select 
-                                            value={gameState.settings.gameSpeed}
-                                            onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, gameSpeed: parseInt(e.target.value)}}))}
-                                            className="bg-gray-900 border border-gray-700 rounded px-1"
-                                         >
-                                             <option value="3000">Slow</option>
-                                             <option value="2000">Normal</option>
-                                             <option value="500">Fast</option>
-                                         </select>
-                                     </label>
-                                 </div>
+                         <div className="flex gap-4">
+                             <div className="bg-gray-800 p-2 rounded border border-gray-700 text-xs flex gap-4">
+                                 <label className="flex items-center gap-2">
+                                     <span className="text-gray-400">Lethality</span>
+                                     <input 
+                                        type="range" min="0.5" max="2.0" step="0.1" 
+                                        value={gameState.settings.fatalityRate}
+                                        onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, fatalityRate: parseFloat(e.target.value)}}))}
+                                        className="accent-gold w-20"
+                                     />
+                                 </label>
+                                 <label className="flex items-center gap-2">
+                                     <span className="text-gray-400">Speed</span>
+                                     <select 
+                                        value={gameState.settings.gameSpeed}
+                                        onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, gameSpeed: parseInt(e.target.value)}}))}
+                                        className="bg-gray-900 border border-gray-700 rounded px-1"
+                                     >
+                                         <option value="3000">Slow</option>
+                                         <option value="2000">Normal</option>
+                                         <option value="500">Fast</option>
+                                     </select>
+                                 </label>
                              </div>
-                             <button onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))} className="w-full py-2 border border-gray-600 rounded text-gray-400 hover:border-white hover:text-white text-xs uppercase font-bold">
-                                 Regenerate Tributes
-                             </button>
-                             <button onClick={handleSimulateTraining} className="w-full py-2 border border-blue-900 text-blue-500 bg-blue-900/10 hover:bg-blue-900/30 rounded text-xs uppercase font-bold">
-                                 Simulate Training (Relationships)
+                             <button onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))} className="px-4 py-2 border border-gold text-gold hover:bg-gold hover:text-black rounded text-xs uppercase font-bold transition-all">
+                                 Regenerate
                              </button>
                          </div>
                      </div>
                      
-                     <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping', logs: [{ id: 'init', text: "The Tributes rise on their podiums...", type: 'Bloodbath' as any }] }))} className="w-full py-4 bg-gold hover:bg-yellow-400 text-black font-display font-black text-xl uppercase tracking-[0.2em] rounded shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all transform hover:scale-[1.01]">
-                         Begin Simulation
-                     </button>
+                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6">
+                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                             {districts.sort((a,b) => a-b).map(d => {
+                                 const dTribs = gameState.tributes.filter(t => t.district === d);
+                                 return (
+                                     <div key={d} className="bg-black/30 border border-gray-800 rounded-lg p-3">
+                                         <h3 className="text-gray-500 font-bold text-xs uppercase tracking-widest mb-3 border-b border-gray-800 pb-1">District {d}</h3>
+                                         <div className="space-y-3">
+                                             {dTribs.map(t => (
+                                                 <div key={t.id} className="flex gap-3 items-center">
+                                                     <div className={`w-8 h-8 rounded flex items-center justify-center border ${t.gender === 'M' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'}`}>
+                                                        <span className="text-[10px] font-bold text-gray-400">{t.gender}</span>
+                                                     </div>
+                                                     <div className="flex-1 min-w-0">
+                                                         <div className="flex justify-between items-center">
+                                                             <span className="text-gray-300 font-bold text-xs truncate">{t.name}</span>
+                                                             <span className={`text-[9px] font-mono ${t.age < 14 ? 'text-red-400' : 'text-green-500'}`}>{t.age}y</span>
+                                                         </div>
+                                                         <div className="flex flex-wrap gap-1 mt-1">
+                                                             {t.traits.map(trait => (
+                                                                 <span key={trait} className="text-[8px] bg-gray-800 text-gray-400 px-1 rounded border border-gray-700">{trait}</span>
+                                                             ))}
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                     </div>
+                                 );
+                             })}
+                         </div>
+                     </div>
+                     
+                     <div className="flex gap-4">
+                         <button onClick={handleSimulateTraining} className="flex-1 py-3 border border-blue-900 text-blue-500 bg-blue-900/10 hover:bg-blue-900/30 rounded-xl text-sm uppercase font-bold transition-colors">
+                             Simulate Training Week (Build Relationships)
+                         </button>
+                         <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping', logs: [{ id: 'init', text: "The Tributes rise on their podiums...", type: 'Bloodbath' as any }] }))} className="flex-[2] py-3 bg-gold hover:bg-yellow-400 text-black font-display font-black text-lg uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all transform hover:scale-[1.01]">
+                             Begin The Games
+                         </button>
+                     </div>
                  </div>
              </div>
         )}
@@ -342,7 +378,7 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>Sim v3.0</span>
+                        <span>Sim v3.1</span>
                         <span className="text-gray-700">•</span>
                         <span>{gameState.phase}</span>
                     </div>
@@ -368,6 +404,12 @@ const App: React.FC = () => {
                     >
                         <span className={`w-2 h-2 rounded-full ${sponsorMode ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`}></span>
                         {sponsorMode ? 'Sponsor: ON' : 'Sponsor: OFF'}
+                    </button>
+                    <button 
+                        onClick={() => setShowRelationships(true)}
+                        className="text-gray-500 hover:text-white px-2 py-1 rounded border border-gray-700 hover:border-gray-500 text-[10px] font-mono uppercase font-bold"
+                    >
+                        Intel
                     </button>
                     <button onClick={() => setShowHowToPlay(true)} className="text-gray-500 hover:text-white"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
                  </div>
@@ -434,6 +476,9 @@ const App: React.FC = () => {
             )}
             {gameState.phase === 'Day' && gameState.currentWeather === 'Heatwave' && (
                 <div className="absolute inset-0 pointer-events-none bg-orange-500/10 z-0 mix-blend-overlay"></div>
+            )}
+            {gameState.phase === 'Day' && gameState.currentWeather === 'Fog' && (
+                <div className="absolute inset-0 pointer-events-none bg-gray-500/20 z-0 backdrop-blur-[2px]"></div>
             )}
 
             {gameState.phase === 'Winner' && (

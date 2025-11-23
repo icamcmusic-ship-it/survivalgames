@@ -4,16 +4,18 @@ export enum TributeStatus {
   Dead = 'Dead'
 }
 
-export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming' | 'Trained' | 'Underdog' | 'Traumatized' | 'Broken';
+export type Trait = 'Ruthless' | 'Survivalist' | 'Coward' | 'Friendly' | 'Unstable' | 'Charming' | 'Trained' | 'Underdog' | 'Traumatized' | 'Broken' | 'Stoic' | 'Devious' | 'Clumsy' | 'Sharpshooter' | 'Naive' | 'Glutton';
 
 export interface Tribute {
   id: string;
   name: string;
   district: number;
   gender: 'M' | 'F';
+  age: number; // New
   status: TributeStatus;
   killCount: number;
   inventory: string[];
+  allianceId?: string; // New
   // New Deep Sim Stats
   stats: {
     health: number; // 0-100 (New: Physical HP)

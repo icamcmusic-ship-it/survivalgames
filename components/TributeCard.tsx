@@ -24,6 +24,20 @@ const DISTRICT_COLORS: Record<number, string> = {
   12: 'border-slate-400',
 };
 
+// Helper for alliance color
+const stringToColor = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  let color = '#';
+  for (let i = 0; i < 3; i++) {
+    const value = (hash >> (i * 8)) & 0xFF;
+    color += ('00' + value.toString(16)).substr(-2);
+  }
+  return color;
+}
+
 // Helper to get primary mood
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
@@ -49,6 +63,9 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
   const sanityPercent = Math.min(100, tribute.stats.sanity);
   const healthPercent = Math.min(100, tribute.stats.health);
 
+  // Alliance Color
+  const allianceColor = tribute.allianceId && !isDead ? stringToColor(tribute.allianceId) : null;
+
   return (
     <div className={`
       relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out
@@ -57,6 +74,11 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
         : (sponsorMode ? 'bg-panel border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1')
       }
     `}>
+      {/* Alliance Indicator */}
+      {allianceColor && (
+          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-1/2 rounded-r-md" style={{ backgroundColor: allianceColor }} title="In Alliance"></div>
+      )}
+
       {/* Status Indicator Dot (Corner) */}
       <div className={`absolute top-3 right-3 w-2 h-2 rounded-full ${isDead ? 'bg-gray-700' : 'bg-green-500 animate-pulse'}`}></div>
       
@@ -79,7 +101,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
           </button>
       )}
 
-      <div className="flex items-center gap-3 mb-2">
+      <div className="flex items-center gap-3 mb-2 pl-1">
         {/* Avatar */}
         <div className={`
           relative w-12 h-12 shrink-0 rounded-lg border-2 flex items-center justify-center bg-gray-900 overflow-hidden
@@ -119,6 +141,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, ca
           <h3 className={`text-sm font-medium leading-tight break-words ${isDead ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
             {tribute.name}
           </h3>
+          <div className="text-[9px] text-gray-500 font-mono mt-0.5">{tribute.age} Years Old</div>
         </div>
       </div>
 
