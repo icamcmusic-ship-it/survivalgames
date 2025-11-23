@@ -1,12 +1,15 @@
 
+
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
-import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents } from '../data/events';
+import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents } from '../data/events';
 
 // --- Config ---
 const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton'];
 
 const ITEM_VALUES: Record<string, number> = {
     'Explosives': 20,
+    'Gun': 18,
+    'Scythe': 16,
     'Bow': 15,
     'Arrows': 15,
     'Sword': 15,
@@ -19,6 +22,8 @@ const ITEM_VALUES: Record<string, number> = {
     'First Aid Kit': 10,
     'Bandages': 10,
     'Shield': 8,
+    'Molotov Components': 8,
+    'Shovel': 7,
     'Bread': 6,
     'Backpack': 5,
     'Water': 5,
@@ -47,30 +52,90 @@ const getRandomTraits = (district: number): Trait[] => {
   return shuffled.slice(0, num);
 };
 
-// Helper to calculate initial odds
-const calculateOdds = (district: number, traits: Trait[], age: number): string => {
-    let score = 10; // Base
-    // District Bias
-    if ([1, 2, 4].includes(district)) score += 15;
-    if ([11, 12].includes(district)) score -= 5;
+// Monte Carlo Simulation for Odds
+const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], simulations = 600): string => {
+    let wins = 0;
     
-    // Age Bias
-    if (age >= 16 && age <= 18) score += 5;
-    if (age <= 13) score -= 5;
+    for (let i = 0; i < simulations; i++) {
+        // Create simplified roster with Randomized Power (Form)
+        // We add randomness here so even weak tributes can have a "good run"
+        let roster = allTributes.map(t => {
+            let power = 50; 
+            
+            // Skill
+            power += t.stats.weaponSkill; 
+            
+            // Traits
+            if (t.traits.includes('Trained')) power += 20;
+            if (t.traits.includes('Ruthless')) power += 15;
+            if (t.traits.includes('Survivalist')) power += 15;
+            if (t.traits.includes('Sharpshooter')) power += 10;
+            if (t.traits.includes('Devious')) power += 10;
+            if (t.traits.includes('Stoic')) power += 8;
+            if (t.traits.includes('Underdog')) power += 8;
+            if (t.traits.includes('Charming')) power += 5;
 
-    // Trait Bias
-    if (traits.includes('Trained')) score += 10;
-    if (traits.includes('Ruthless')) score += 8;
-    if (traits.includes('Survivalist')) score += 8;
-    if (traits.includes('Clumsy')) score -= 5;
-    if (traits.includes('Coward')) score -= 3;
+            // Random Day-to-Day variance (The "Any given Sunday" factor)
+            power += Math.random() * 40; 
 
-    // Convert to fractional odds (rough approx)
-    if (score > 40) return "2/1";
-    if (score > 30) return "5/1";
-    if (score > 20) return "12/1";
-    if (score > 10) return "25/1";
-    return "50/1";
+            return {
+                id: t.id,
+                power: power,
+                alive: true
+            };
+        });
+
+        let activeCount = roster.length;
+        
+        while (activeCount > 1) {
+            // Pick two random alive fighters
+            let idx1 = Math.floor(Math.random() * roster.length);
+            while (!roster[idx1].alive) idx1 = Math.floor(Math.random() * roster.length);
+
+            let idx2 = Math.floor(Math.random() * roster.length);
+            while (idx2 === idx1 || !roster[idx2].alive) idx2 = Math.floor(Math.random() * roster.length);
+
+            const f1 = roster[idx1];
+            const f2 = roster[idx2];
+            
+            // Probabilistic Combat
+            // Instead of f1.power > f2.power, we use a weighted roll.
+            // This allows a weaker tribute to occasionally beat a stronger one.
+            const totalPower = f1.power + f2.power;
+            const roll = Math.random() * totalPower;
+
+            if (roll < f1.power) {
+                // f1 wins
+                f2.alive = false;
+                f1.power += 5; // Momentum
+            } else {
+                // f2 wins
+                f1.alive = false;
+                f2.power += 5;
+            }
+            activeCount--;
+        }
+
+        const winner = roster.find(r => r.alive);
+        if (winner && winner.id === targetTribute.id) {
+            wins++;
+        }
+    }
+
+    const winRate = wins / simulations;
+    
+    if (winRate >= 0.30) return "Evens";
+    if (winRate >= 0.20) return "2/1";
+    if (winRate >= 0.15) return "3/1";
+    if (winRate >= 0.10) return "5/1";
+    if (winRate >= 0.08) return "8/1";
+    if (winRate >= 0.06) return "10/1";
+    if (winRate >= 0.05) return "12/1";
+    if (winRate >= 0.04) return "15/1";
+    if (winRate >= 0.03) return "20/1";
+    if (winRate >= 0.02) return "30/1";
+    if (winRate >= 0.01) return "50/1";
+    return "75/1";
 };
 
 export const generateTributes = (): Tribute[] => {
@@ -80,14 +145,11 @@ export const generateTributes = (): Tribute[] => {
   for (let i = 1; i <= 12; i++) {
     const isCareer = [1, 2, 4].includes(i);
     
-    // Random starting coordinates (Cluster by district)
-    // Center is 0,0. Radius 4.
     const dir = (i / 12) * 2 * Math.PI;
     const dist = 3;
     const q = Math.round(dist * Math.cos(dir));
     const r = Math.round(dist * Math.sin(dir));
     
-    // Fix: Calculate Age inside loop independently
     const ageM = Math.floor(Math.random() * (18 - 12 + 1)) + 12;
     const traitsM = getRandomTraits(i);
     
@@ -99,14 +161,14 @@ export const generateTributes = (): Tribute[] => {
       age: ageM,
       status: TributeStatus.Alive,
       killCount: 0,
-      inventory: [], // Fix: Careers don't start with weapons anymore
+      inventory: [], 
       allianceId: isCareer ? careerAllianceId : undefined,
       coordinates: { q, r },
-      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: 0 },
+      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: isCareer ? 20 : 0 },
       traits: traitsM,
       relationships: {}, 
       notes: [],
-      odds: calculateOdds(i, traitsM, ageM),
+      odds: "TBD", // Calc later
       trainingScore: 0
     });
 
@@ -123,30 +185,32 @@ export const generateTributes = (): Tribute[] => {
       killCount: 0,
       inventory: [],
       allianceId: isCareer ? careerAllianceId : undefined,
-      coordinates: { q, r }, // Same start tile
-      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: 0 },
+      coordinates: { q, r }, 
+      stats: { sanity: 100, hunger: 0, exhaustion: 0, health: 100, weaponSkill: isCareer ? 20 : 0 },
       traits: traitsF,
       relationships: {},
       notes: [],
-      odds: calculateOdds(i, traitsF, ageF),
+      odds: "TBD",
       trainingScore: 0
     });
   }
 
-  // Initial Relationships (Career Pack & District Partners)
+  // Initial Relationships
   tributes.forEach(t1 => {
       tributes.forEach(t2 => {
           if (t1.id === t2.id) return;
-          
-          // Careers trust each other initially
           if (t1.allianceId === careerAllianceId && t2.allianceId === careerAllianceId) {
               t1.relationships[t2.id] = 50;
           }
-          // District partners have a base trust
           if (t1.district === t2.district) {
               t1.relationships[t2.id] = 30;
           }
       });
+  });
+
+  // Calculate Odds
+  tributes.forEach(t => {
+      t.odds = calculateSimulatedOdds(t, tributes);
   });
 
   return tributes;
@@ -213,6 +277,14 @@ const modifyRelationship = (from: Tribute, to: Tribute, amount: number) => {
   from.relationships[to.id] = Math.max(-100, Math.min(100, current + amount));
 };
 
+// Helper conditions
+const isStarving = (t: Tribute) => t.stats.hunger > 80;
+const isInsane = (t: Tribute) => t.stats.sanity < 40;
+const isExhausted = (t: Tribute) => t.stats.exhaustion > 80;
+const isInjured = (t: Tribute) => t.stats.health < 60 || t.stats.sanity < 60; 
+const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30 || t.stats.health < 30;
+
+
 const hasSynergy = (actors: Tribute[], type: 'Combat' | 'Survival'): boolean => {
     const allTraits = actors.flatMap(t => t.traits);
     if (type === 'Combat') return allTraits.includes('Ruthless') && allTraits.includes('Trained');
@@ -225,7 +297,7 @@ const calculateEventScore = (
     actors: Tribute[], 
     phase: string, 
     aggressionMultiplier: number, 
-    aliveCount: number,
+    aliveCount: number, 
     day: number,
     minDays: number,
     maxDays: number,
@@ -347,41 +419,61 @@ const calculateEventScore = (
   return Math.max(0, score);
 };
 
-// --- Training Simulation (Updated) ---
+// --- Training Simulation (New Robust Logic) ---
 export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes: Tribute[], logs: LogEntry[] } => {
     const logs: LogEntry[] = [];
-    
-    const tributesMap = new Map(currentTributes.map(t => [t.id, {...t, relationships: {...t.relationships}, stats: {...t.stats}}]));
+    const tributesMap = new Map(currentTributes.map(t => [t.id, {...t, relationships: {...t.relationships}, stats: {...t.stats}, traits: [...t.traits]}]));
     const tributes = Array.from(tributesMap.values());
+    const availableIds = shuffle(tributes.map(t => t.id));
 
-    // Simulate 1 "Day" of training
-    for (const t of tributes) {
-        // Skill Gain
-        if (Math.random() < 0.4) {
-            t.stats.weaponSkill = Math.min(100, t.stats.weaponSkill + 10);
-            t.trainingScore += 10;
+    while (availableIds.length > 0) {
+        const actorId = availableIds.pop();
+        if (!actorId) break;
+        const actor = tributesMap.get(actorId)!;
+
+        // Grouping
+        let groupSize = Math.random() < 0.7 ? 1 : 2;
+        const group: Tribute[] = [actor];
+
+        if (groupSize === 2 && availableIds.length > 0) {
+            const partnerId = availableIds.pop();
+            if (partnerId) group.push(tributesMap.get(partnerId)!);
         }
-        
-        // Relationship Building
-        const other = tributes[Math.floor(Math.random() * tributes.length)];
-        if (other.id !== t.id) {
-            const compat = (t.district === other.district ? 20 : 0) + (Math.random() * 40 - 20);
-            if (compat > 10) {
-                modifyRelationship(t, other, 5);
-                modifyRelationship(other, t, 5);
-                t.trainingScore += 2;
-            } else {
-                modifyRelationship(t, other, -5);
-                modifyRelationship(other, t, -5);
+
+        // Pick Event
+        const validEvents = trainingEvents.filter(e => e.playerCount === group.length);
+        const event = validEvents[Math.floor(Math.random() * validEvents.length)];
+
+        // Effects
+        group.forEach(t => {
+            if (event.tags?.includes('Skill')) {
+                t.stats.weaponSkill = Math.min(100, t.stats.weaponSkill + 5);
+                t.trainingScore += 10;
             }
-        }
-    }
+            if (event.tags?.includes('Social') && group.length > 1) {
+                const other = group.find(g => g.id !== t.id);
+                if (other) {
+                    modifyRelationship(t, other, 10);
+                }
+            }
+            if (event.tags?.includes('Intimidate') && group.length > 1) {
+                 const other = group.find(g => g.id !== t.id);
+                 if (other) {
+                     modifyRelationship(t, other, -5);
+                     modifyRelationship(other, t, -10);
+                 }
+            }
+            if (event.tags?.includes('Stealth')) {
+                if (!t.traits.includes('Devious') && Math.random() < 0.2) t.traits.push('Devious');
+            }
+        });
 
-    logs.push({
-        id: crypto.randomUUID(),
-        text: "The tributes train in the center. Alliances are forged and skills honed.",
-        type: EventType.Training
-    });
+        logs.push({
+            id: crypto.randomUUID(),
+            text: parseEventText(event.text, group),
+            type: EventType.Training
+        });
+    }
 
     return { updatedTributes: tributes, logs };
 };
@@ -431,7 +523,6 @@ export const simulatePhase = (
           text: `<span class="text-orange-500 font-bold text-lg">THE FEAST BEGINS!</span> A cornucopia of supplies has appeared.`,
           type: EventType.Feast
       });
-      // Feast draws everyone to center (0,0)
       tributesMap.forEach(t => {
           if (t.status === TributeStatus.Alive) {
               t.stats.hunger = 0;
@@ -487,7 +578,6 @@ export const simulatePhase = (
       let hungerGain = Math.floor(Math.random() * 10) + 5;
       let exhaustionGain = phase === 'Day' ? 10 : -20;
 
-      // Fix: Check if weather is enabled
       if (enableWeather) {
         if (currentWeather === 'Heatwave') hungerGain += 5;
         if (currentWeather === 'Storm' && phase === 'Day') exhaustionGain += 10;
@@ -504,13 +594,13 @@ export const simulatePhase = (
           t.stats.health += 5;
       }
 
-      // Alliance checks
+      // Alliance checks - Fix fragmentation
       if (t.allianceId) {
           let allianceMembers = Array.from(tributesMap.values()).filter(m => m.allianceId === t.allianceId && m.id !== t.id);
           let avgRel = allianceMembers.reduce((acc, m) => acc + (t.relationships[m.id] || 0), 0) / (allianceMembers.length || 1);
           
-          if (avgRel < 0 || t.traits.includes('Devious')) {
-              if (Math.random() < 0.2) t.allianceId = undefined;
+          if (avgRel < -20 || (t.traits.includes('Devious') && Math.random() < 0.1)) {
+              t.allianceId = undefined; // Leave alliance
           }
       }
 
@@ -537,15 +627,11 @@ export const simulatePhase = (
   if (daysSinceLastDeath > 2) aggressionMultiplier *= 2.0; 
   if (aliveCount <= 4) aggressionMultiplier *= 3.0; 
   if (isFeast) aggressionMultiplier = 2.0;
-
-  // BLOODBATH SPECIAL LOGIC
-  if (phase === 'Bloodbath') aggressionMultiplier = 5.0; // High Lethality
+  if (phase === 'Bloodbath') aggressionMultiplier = 5.0;
 
   // Event Pool
   let basePool: GameEvent[] = [];
   if (phase === 'Bloodbath') {
-      // Mix supply and death events for Bloodbath
-      // Weighted random choice will happen in selection, but we need both available
       basePool = [...bloodbathEvents, ...bloodbathDeathEvents];
   }
   else if (phase === 'Night') basePool = [...nightEvents, ...fatalEvents];
@@ -566,7 +652,7 @@ export const simulatePhase = (
 
     let groupIds: string[] = [actorId];
     
-    // Ally pull-in (must be close)
+    // Ally pull-in
     if (actor.allianceId) {
         const allies = Array.from(tributesMap.values())
             .filter(t => t.status === TributeStatus.Alive && t.allianceId === actor.allianceId && t.id !== actor.id && availableIds.includes(t.id) && getDistance(actor, t) <= 1)
@@ -574,16 +660,25 @@ export const simulatePhase = (
         if (allies.length > 0) groupIds.push(...allies);
     }
 
+    // Determine Desire (Hierarchy of Needs)
     let desire: 'Kill' | 'Social' | 'Solo' = 'Solo';
     
-    if (daysSinceLastDeath > 3 && aliveCount > 2 && Math.random() < 0.4) desire = 'Kill'; 
-    else if (actor.stats.sanity < 20 || actor.stats.hunger > 90) desire = 'Solo'; 
-    else if (Math.random() < 0.3 || actor.traits.includes('Friendly') || actor.traits.includes('Charming')) desire = 'Social';
-    else if (Math.random() < 0.1 || actor.traits.includes('Ruthless') || aliveCount <= 4) desire = 'Kill';
-    
-    if (actor.allianceId === 'alliance-career-pack' && aliveCount > 6 && Math.random() < 0.6) desire = 'Kill';
+    // 1. Critical Survival
+    if (actor.stats.hunger > 90 || actor.stats.health < 30) {
+        desire = 'Solo'; // Look for food/meds events
+    }
+    // 2. Insanity
+    else if (actor.stats.sanity < 30) {
+         desire = Math.random() < 0.5 ? 'Kill' : 'Solo';
+    }
+    // 3. Aggression
+    else if (daysSinceLastDeath > 3 && aliveCount > 2) desire = 'Kill';
+    else if ((actor.traits.includes('Ruthless') || aliveCount <= 4) && Math.random() < 0.3) desire = 'Kill';
+    else if (phase === 'Bloodbath' && Math.random() < 0.7) desire = 'Kill';
+    // 4. Social
+    else if (actor.traits.includes('Friendly') || actor.traits.includes('Charming') || Math.random() < 0.4) desire = 'Social';
 
-    // 90% chance for small groups (1-2)
+    // Form Groups based on desire
     const maxGroupSize = Math.random() < 0.9 ? 2 : (Math.floor(Math.random() * 4) + 3);
     
     while (groupIds.length < maxGroupSize && availableIds.length > 0) {
@@ -593,13 +688,22 @@ export const simulatePhase = (
         for (const targetId of availableIds) {
              if (groupIds.includes(targetId)) continue;
              const target = tributesMap.get(targetId)!;
-             
-             // DISTANCE CHECK: Must be adjacent (dist <= 1) to interact
              if (getDistance(actor, target) > 1) continue;
 
              const relation = getRelationship(actor, target);
-             let score = desire === 'Social' ? relation : -relation;
-             score += Math.random() * 50; 
+             let score = 0;
+
+             if (desire === 'Kill') {
+                 score = -relation; 
+                 // Target weak
+                 if (target.stats.health < 50) score += 50;
+                 if (actor.district === target.district) score -= 100;
+             } else if (desire === 'Social') {
+                 score = relation;
+                 if (target.allianceId === actor.allianceId) score += 50;
+             }
+
+             score += Math.random() * 30; 
              
              if (score > bestScore) {
                  bestScore = score;
@@ -609,14 +713,16 @@ export const simulatePhase = (
 
         if (bestTargetId) {
              const relation = getRelationship(actor, tributesMap.get(bestTargetId)!);
+             // Thresholds to interact
              if (desire === 'Social' && relation > -20) groupIds.push(bestTargetId);
              else if (desire === 'Kill' && (relation < 20 || aliveCount <= 4)) groupIds.push(bestTargetId);
-             else break;
+             else break; // No good targets
         } else {
             break;
         }
     }
 
+    // Remove group members from available pool
     groupIds.forEach(id => {
         if (id !== actorId) {
             const idx = availableIds.indexOf(id);
@@ -627,21 +733,22 @@ export const simulatePhase = (
     const finalGroupSize = groupIds.length;
     const groupActors = groupIds.map(id => tributesMap.get(id)!);
 
+    // Alliance Logic fix: Only form NEW alliance if not already in one or large social group
     if (desire === 'Social' && finalGroupSize > 1 && !actor.allianceId) {
         const avgRel = groupActors.reduce((acc, t) => acc + (t.relationships[actor.id]||0), 0) / finalGroupSize;
         if (avgRel > 20) {
             const newAllianceId = `alliance-${day}-${Math.random().toString(36).substr(2, 5)}`;
-            groupActors.forEach(t => t.allianceId = newAllianceId);
+            // Only pull in people who aren't in a strong alliance
+            groupActors.forEach(t => {
+                if (!t.allianceId) t.allianceId = newAllianceId;
+            });
         }
     }
 
     let possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
 
-    // Bloodbath Bias: Ensure lethal events are picked
     if (phase === 'Bloodbath') {
-         // If we have a lethal desire OR random chance, pick from death events
-         // Since basePool contains both, we filter by tags
-         if (Math.random() < 0.6) { // 60% chance to look for a kill event explicitly
+         if (Math.random() < 0.6) { 
              possibleEvents = possibleEvents.filter(e => e.fatalities || e.tags?.includes('Kill'));
          }
     }
@@ -650,6 +757,8 @@ export const simulatePhase = (
     else if (desire === 'Social') possibleEvents = possibleEvents.filter(e => !e.fatalities && !e.tags?.includes('Attack'));
     
     if (possibleEvents.length === 0) possibleEvents = basePool.filter(e => e.playerCount === finalGroupSize);
+    
+    // Filter non-fatalities if pacing requires it
     if (day < minDays && deathsThisPhase > 4 && phase !== 'Bloodbath') possibleEvents = possibleEvents.filter(e => !e.fatalities);
 
     let chosenEvent: GameEvent | null = null;
@@ -691,6 +800,7 @@ export const simulatePhase = (
 
     if (chosenEvent.itemGain) actors[0].inventory.push(...chosenEvent.itemGain);
     if (chosenEvent.itemRequired && chosenEvent.consumesItem) {
+        // Fix: logic for consume
         const itemsToRemove = Array.isArray(chosenEvent.consumesItem) ? chosenEvent.consumesItem : chosenEvent.itemRequired;
         itemsToRemove.forEach(item => {
             const idx = actors[0].inventory.indexOf(item);
@@ -714,7 +824,6 @@ export const simulatePhase = (
 
     // Travel logic (Hex Map)
     if (chosenEvent.tags?.includes('Travel') || chosenEvent.tags?.includes('Flee') || chosenEvent.tags?.includes('Hunt')) {
-        // Move in a random direction
         const directions = [
             {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
             {q: -1, r: 0}, {q: -1, r: 1}, {q: 0, r: 1}
@@ -723,7 +832,6 @@ export const simulatePhase = (
         actors.forEach(a => {
             a.coordinates.q += move.q;
             a.coordinates.r += move.r;
-            // Clamp to map size approx 5
             if (Math.abs(a.coordinates.q) > 5) a.coordinates.q = Math.sign(a.coordinates.q) * 5;
             if (Math.abs(a.coordinates.r) > 5) a.coordinates.r = Math.sign(a.coordinates.r) * 5;
         });
@@ -786,11 +894,6 @@ export const simulatePhase = (
             const p1 = actors[0];
             const p2 = actors[1];
             modifyRelationship(p2, p1, -40);
-            if (p2.traits.includes('Friendly')) {
-                 p2.traits = p2.traits.filter(t => t !== 'Friendly');
-                 p2.traits.push('Traumatized');
-                 logs.push({ id: `ev-${crypto.randomUUID()}`, text: `<span class="text-purple-400 font-bold">TRAIT EVOLUTION:</span> ${p2.name} will no longer trust easily.`, type: EventType.Day });
-            }
         }
     }
 

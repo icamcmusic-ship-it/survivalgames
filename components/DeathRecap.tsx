@@ -1,17 +1,43 @@
 
+
 import React, { useState } from 'react';
-import { Tribute } from '../types';
+import { Tribute, TributeStatus } from '../types';
+import { PostGameSummary } from './PostGameSummary';
 
 interface DeathRecapProps {
   fallen: Tribute[];
+  allTributes: Tribute[]; // Needed for killer lookup
   onNext: () => void;
 }
 
-export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, onNext }) => {
+export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onNext }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+
+  const getKillerName = (killerId?: string) => {
+      if (!killerId) return null;
+      const killer = allTributes.find(t => t.id === killerId);
+      if (!killer) return "Unknown";
+      return killer.name + (killer.status === TributeStatus.Dead ? " (Deceased)" : "");
+  };
+
+  if (showSummary) {
+      return (
+          <div className="h-full flex flex-col p-6 animate-fade-in relative z-20">
+              <div className="flex justify-between items-center mb-4">
+                  <h2 className="font-display text-2xl text-white font-bold">Round Summary</h2>
+                  <button onClick={() => setShowSummary(false)} className="text-gold font-bold uppercase text-sm border border-gold px-3 py-1 rounded hover:bg-gold hover:text-black transition-colors">Back to Recap</button>
+              </div>
+              <PostGameSummary tributes={allTributes} winner={allTributes.find(t => t.status === TributeStatus.Alive) || allTributes[0]} />
+              <div className="mt-4 flex justify-end">
+                  <button onClick={onNext} className="px-6 py-2 bg-gray-800 text-gray-300 font-mono uppercase font-bold border border-gray-600 hover:bg-gray-700">Resume Game</button>
+              </div>
+          </div>
+      );
+  }
 
   return (
-    <div className="h-full flex flex-col items-center justify-center p-4 animate-fade-in">
+    <div className="h-full flex flex-col items-center justify-center p-4 animate-fade-in relative z-20">
         <div className="text-center space-y-4 mb-8">
             <div className="inline-block border-b-2 border-blood pb-1 mb-2">
                  <h2 className="font-display text-4xl md:text-5xl font-black text-white uppercase tracking-[0.2em]">Fallen Tributes</h2>
@@ -48,23 +74,29 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, onNext }) => {
                 <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-blood text-white text-xs p-2 rounded w-48 text-center shadow-xl">
                     <div className="font-bold text-blood uppercase mb-1">Cause of Death</div>
                     <div className="mb-1">{t.deathCause || 'Unknown'}</div>
-                    {t.killerId && fallen.some(f => f.id === t.killerId) ? (
-                         <div className="mt-1 text-gray-500">Killer: {fallen.find(f => f.id === t.killerId)?.name}</div>
-                    ) : t.killerId ? (
-                         <div className="mt-1 text-gray-500">Killer: Unknown (Alive)</div>
-                    ) : null}
+                    {t.killerId && (
+                         <div className="mt-1 text-gray-500">Killer: {getKillerName(t.killerId)}</div>
+                    )}
                 </div>
             )}
           </div>
         ))}
       </div>
 
-      <button 
-        onClick={onNext}
-        className="mt-12 px-10 py-3 bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 font-mono font-bold uppercase tracking-widest rounded border border-gray-600 transition-all hover:border-gray-400 hover:shadow-lg"
-      >
-        Resume Simulation
-      </button>
+      <div className="mt-12 flex flex-col md:flex-row gap-4">
+          <button 
+            onClick={() => setShowSummary(true)}
+            className="px-8 py-3 bg-gray-900 hover:bg-gray-800 text-gold border border-gold/50 font-mono font-bold uppercase tracking-widest rounded transition-all"
+          >
+            View Details
+          </button>
+          <button 
+            onClick={onNext}
+            className="px-8 py-3 bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 font-mono font-bold uppercase tracking-widest rounded border border-gray-600 transition-all hover:border-gray-400 hover:shadow-lg"
+          >
+            Resume Simulation
+          </button>
+      </div>
     </div>
   );
 };

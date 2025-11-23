@@ -1,4 +1,5 @@
 
+
 import { GameEvent, Tribute } from '../types';
 
 // Helper conditions
@@ -7,6 +8,20 @@ const isInsane = (t: Tribute) => t.stats.sanity < 40;
 const isExhausted = (t: Tribute) => t.stats.exhaustion > 80;
 const isInjured = (t: Tribute) => t.stats.health < 60 || t.stats.sanity < 60; 
 const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30 || t.stats.health < 30;
+
+// --- TRAINING EVENTS (New) ---
+export const trainingEvents: GameEvent[] = [
+  { text: "(P1) practices their aim at the archery range.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Bow'] },
+  { text: "(P1) lifts weights to build strength.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Strength'] },
+  { text: "(P1) studies edible plants in the survival station.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Survival'] },
+  { text: "(P1) works on camouflage techniques.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Stealth'] },
+  { text: "(P1) and (P2) spar with wooden swords.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Social', 'Combat'] },
+  { text: "(P1) and (P2) share a meal and discuss their districts.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Social'] },
+  { text: "(P1) tries to intimidate (P2) during training.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social', 'Intimidate'] },
+  { text: "(P1) shows off their skills to the Gamemakers.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Skill', 'Showoff'] },
+  { text: "(P1) sits in the corner, observing the others.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
+  { text: "(P1) and (P2) form a temporary pact.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social', 'Alliance'] },
+];
 
 // --- BLOODBATH SUPPLY (Low Lethality) ---
 export const bloodbathEvents: GameEvent[] = [

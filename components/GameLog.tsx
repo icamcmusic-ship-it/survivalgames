@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useState } from 'react';
 import { LogEntry, RoundHistory } from '../types';
 
@@ -11,26 +12,21 @@ interface GameLogProps {
 
 type FilterType = 'ALL' | 'DEATHS' | 'MAJOR';
 
-// Helper to scramble text for hallucination effect
-const scrambleText = (text: string) => {
-    const chars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-    return text.split('').map(char => 
-        Math.random() < 0.1 ? chars[Math.floor(Math.random() * chars.length)] : char
-    ).join('');
-};
-
 export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [viewIndex, setViewIndex] = useState<number>(-1);
   const [filter, setFilter] = useState<FilterType>('ALL');
+  const [autoScroll, setAutoScroll] = useState(true);
 
   useEffect(() => {
     setViewIndex(-1);
   }, [logs]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, viewIndex, filter]);
+    if (autoScroll && viewIndex === -1) {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, autoScroll, viewIndex]);
 
   const isCurrent = viewIndex === -1;
   
@@ -59,6 +55,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
       } else if (viewIndex > 0) {
           setViewIndex(viewIndex - 1);
       }
+      setAutoScroll(false);
   };
 
   const handleNext = () => {
@@ -67,11 +64,12 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
           setViewIndex(viewIndex + 1);
       } else {
           setViewIndex(-1); 
+          setAutoScroll(true);
       }
   };
 
   return (
-    <div className="flex flex-col h-full bg-panel rounded-2xl border border-gray-800 shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-full bg-panel rounded-2xl border border-gray-800 shadow-2xl overflow-hidden relative">
       <style>
         {`
           @keyframes glitch-anim {
@@ -89,6 +87,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
           }
         `}
       </style>
+      
       {/* Log Header */}
       <div className={`p-4 border-b border-gray-800 flex items-center justify-between ${isNightPhase ? 'bg-indigo-950/30' : 'bg-gray-900/50'}`}>
         <div className="flex items-center gap-3">
@@ -120,16 +119,24 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
       </div>
 
       {/* Filters */}
-      <div className="flex border-b border-gray-800 bg-black/20">
-          {(['ALL', 'DEATHS', 'MAJOR'] as FilterType[]).map(f => (
-              <button 
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`flex-1 py-2 text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-white/5 transition-colors ${filter === f ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
-              >
-                  {f}
-              </button>
-          ))}
+      <div className="flex border-b border-gray-800 bg-black/20 justify-between items-center pr-2">
+          <div className="flex flex-1">
+            {(['ALL', 'DEATHS', 'MAJOR'] as FilterType[]).map(f => (
+                <button 
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`flex-1 py-2 text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-white/5 transition-colors ${filter === f ? 'text-gold border-b-2 border-gold' : 'text-gray-500'}`}
+                >
+                    {f}
+                </button>
+            ))}
+          </div>
+          <button 
+             onClick={() => { setAutoScroll(!autoScroll); if(!autoScroll) setViewIndex(-1); }}
+             className={`ml-2 text-[10px] font-mono uppercase px-2 py-1 rounded border ${autoScroll ? 'text-green-400 border-green-900 bg-green-900/20' : 'text-gray-500 border-gray-700'}`}
+          >
+              {autoScroll ? 'Auto-Scroll: ON' : 'Auto-Scroll: OFF'}
+          </button>
       </div>
 
       {/* Log Content */}
@@ -143,10 +150,6 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
         {filteredLogs.map((log, idx) => {
           const isDeath = !!log.deathNames;
           const isArena = log.type === 'Arena';
-          // Sanity Check: If log text contains a "Sanity" tag or user is hallucinating
-          // Note: We don't have direct access to sanity state of ALL actors here easily without parsing, 
-          // but we can detect insanity events by keywords or tags if we passed them. 
-          // For now, we'll look for the Insanity specific keywords in the rendered HTML from logic.
           const isInsanity = log.text.includes('Insanity');
 
           return (
@@ -191,6 +194,15 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
         {/* Bottom Padding for Mobile FAB */}
         <div className="pb-20 md:pb-0" ref={bottomRef} />
       </div>
+      
+      {!autoScroll && (
+          <button 
+             onClick={() => { setAutoScroll(true); setViewIndex(-1); }}
+             className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gold text-black px-4 py-1 rounded-full text-xs font-bold shadow-lg animate-bounce"
+          >
+              Jump to Latest
+          </button>
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -43,14 +44,15 @@ const stringToColor = (str: string) => {
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
+    // Position adjusted: Right side
     if (tribute.stats.health < 40) {
-        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse">CRITICAL</span>;
+        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse z-20">CRITICAL</span>;
     }
     if (tribute.stats.hunger > 85) {
-        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-orange-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">STARVING</span>;
+        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-orange-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm z-20">STARVING</span>;
     }
     if (tribute.stats.sanity < 30) {
-        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">DELIRIOUS</span>;
+        return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm z-20">DELIRIOUS</span>;
     }
     return null;
 };
@@ -78,13 +80,15 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
           <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-1/2 rounded-r-md" style={{ backgroundColor: allianceColor }} title="In Alliance"></div>
       )}
 
-      <div className={`absolute top-3 right-3 w-2 h-2 rounded-full ${isDead ? 'bg-gray-700' : 'bg-green-500 animate-pulse'}`}></div>
-      
+      {/* Mood Badge */}
       {!isDead && getMoodBadge(tribute)}
+      
+      {/* Alive/Dead Indicator Dot - Moved slightly if Badge exists */}
+      <div className={`absolute top-3 right-3 w-2 h-2 rounded-full z-10 ${isDead ? 'bg-gray-700' : 'bg-green-500 animate-pulse'}`}></div>
 
-      {/* Bet Badge */}
+      {/* Bet Badge - Moved to Top Left to avoid overlap */}
       {isUserBet && (
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gold text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-30">
+          <div className="absolute -top-2 -left-1 bg-gold text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-30">
               YOUR BET
           </div>
       )}
