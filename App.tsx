@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TributeStatus, WeatherType } from './types';
-import { generateTributes, simulatePhase, simulateTraining } from './services/gameLogic';
+import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds } from './services/gameLogic';
 import { TributeCard } from './components/TributeCard';
 import { GameLog } from './components/GameLog';
 import { DeathRecap } from './components/DeathRecap';
@@ -42,6 +42,19 @@ const App: React.FC = () => {
   const [showMap, setShowMap] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Load Settings
+  useEffect(() => {
+      const savedSettings = localStorage.getItem('br_settings');
+      if (savedSettings) {
+          setGameState(prev => ({ ...prev, settings: JSON.parse(savedSettings) }));
+      }
+  }, []);
+
+  // Save Settings
+  useEffect(() => {
+      localStorage.setItem('br_settings', JSON.stringify(gameState.settings));
+  }, [gameState.settings]);
+
   // Initialize tributes only on mount if empty
   useEffect(() => {
     if (gameState.tributes.length === 0) {
@@ -74,8 +87,29 @@ const App: React.FC = () => {
     setGameState(prev => {
         const currentAlive = prev.tributes.filter(t => t.status === TributeStatus.Alive);
 
-        if (currentAlive.length <= 1 && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
-          return { ...prev, phase: 'Winner', isAutoPlaying: false };
+        // Winner or No Winner Check
+        if ((currentAlive.length <= 1 || currentAlive.length === 0) && !['Reaping', 'Setup', 'Training'].includes(prev.phase)) {
+          let extraLogs = [];
+          let pointsAwarded = 0;
+          if (prev.userBet) {
+              const winner = currentAlive[0];
+              if (winner && winner.id === prev.userBet) {
+                  pointsAwarded = 500;
+                  extraLogs.push({
+                      id: `bet-win-${crypto.randomUUID()}`,
+                      text: `<span class="text-gold font-bold text-lg">BET WON!</span> You placed your faith in the right tribute. +500 Funds.`,
+                      type: 'Winner' as any
+                  });
+              }
+          }
+          
+          return { 
+              ...prev, 
+              phase: 'Winner', 
+              isAutoPlaying: false,
+              sponsorPoints: prev.sponsorPoints + pointsAwarded,
+              logs: [...prev.logs, ...extraLogs]
+          };
         }
 
         let nextPhase = prev.phase;
@@ -89,9 +123,10 @@ const App: React.FC = () => {
             break;
           case 'Reaping':
             nextPhase = 'Training';
-            nextDay = 0;
+            nextDay = 1; // Start at Day 1
             break;
           case 'Training':
+             // Training Day 1, 2, 3. Then transition.
              if (prev.day < 3) {
                  isTrainingStep = true;
                  nextDay = prev.day + 1;
@@ -141,32 +176,64 @@ const App: React.FC = () => {
              };
         }
 
-        // Determine Weather - Fixed Desync
-        let nextWeather = prev.currentWeather;
-        if (prev.settings.enableWeather && nextPhase === 'Day' && Math.random() < 0.3) {
-            const weathers: WeatherType[] = ['Clear', 'Rain', 'Heatwave', 'Fog', 'Storm'];
-            nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
-        } else if (nextPhase === 'Night') {
-            nextWeather = 'Clear'; 
+        // Transition from Training -> Bloodbath: Recalculate Odds
+        if (prev.phase === 'Training' && nextPhase === 'Bloodbath') {
+            const updatedTributes = recalculateAllOdds(prev.tributes);
+            const newHistory = [...prev.history, { phase: prev.phase, day: prev.day, logs: prev.logs }];
+            
+            // Initial Weather for Day 1 (Bloodbath typically clear, but set up for later)
+            return {
+                ...prev,
+                tributes: updatedTributes,
+                phase: 'Bloodbath',
+                day: 1,
+                history: newHistory,
+                logs: [] // New log for bloodbath
+            };
         }
 
-        const result = simulatePhase(
-            prev.tributes, 
-            nextPhase as any, 
-            prev.daysSinceLastDeath,
-            nextDay,
-            prev.minDays,
-            prev.maxDays,
-            nextWeather, // Pass the NEW weather
-            prev.settings.fatalityRate,
-            prev.settings.enableWeather
-        );
+        // Determine Weather
+        let nextWeather = prev.currentWeather;
+        if (prev.settings.enableWeather) {
+             if (nextPhase === 'Day' && Math.random() < 0.3) {
+                const weathers: WeatherType[] = ['Clear', 'Rain', 'Heatwave', 'Fog', 'Storm'];
+                nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
+            } else if (nextPhase === 'Night') {
+                // 50% chance to persist weather
+                if (Math.random() < 0.5) {
+                    nextWeather = prev.currentWeather;
+                } else {
+                    nextWeather = 'Clear';
+                }
+            }
+        } else {
+            nextWeather = 'Clear';
+        }
+
+        // Run Simulation ONLY if not a transition step that already happened
+        let result = {
+            updatedTributes: prev.tributes,
+            logs: [] as any[],
+            fallen: [] as any[],
+            deathsInPhase: 0
+        };
+
+        if (['Bloodbath', 'Day', 'Night'].includes(nextPhase)) {
+            result = simulatePhase(
+                prev.tributes, 
+                nextPhase as any, 
+                prev.daysSinceLastDeath,
+                nextDay,
+                prev.minDays,
+                prev.maxDays,
+                nextWeather, 
+                prev.settings.fatalityRate,
+                prev.settings.enableWeather
+            );
+        }
 
         let newHistory = [...prev.history];
-        if (prev.phase === 'Reaping' || (prev.phase === 'Training' && nextPhase === 'Bloodbath')) {
-             newHistory.push({ phase: prev.phase, day: prev.day, logs: prev.logs });
-        }
-
+        
         if (nextWeather !== prev.currentWeather && nextPhase === 'Day') {
             result.logs.unshift({
                 id: `weather-${crypto.randomUUID()}`,
@@ -184,7 +251,7 @@ const App: React.FC = () => {
           tributes: result.updatedTributes,
           phase: nextPhase as any,
           day: nextDay,
-          logs: nextPhase === 'Bloodbath' ? result.logs : result.logs,
+          logs: result.logs,
           history: newHistory,
           fallenTributes: result.fallen,
           totalEvents: prev.totalEvents + result.logs.length,
@@ -212,7 +279,7 @@ const App: React.FC = () => {
         minDays: 5,
         maxDays: 10,
         isAutoPlaying: false,
-        currentWeather: 'Clear', // Hard reset, but respected in next logic tick
+        currentWeather: 'Clear', 
         settings: { ...prev.settings }
     }));
     setSponsorMode(false);
@@ -226,6 +293,7 @@ const App: React.FC = () => {
 
       setGameState(prev => {
           const target = prev.tributes.find(t => t.id === tributeId);
+          // Let card handle shaking, we just return early here
           if (target && target.inventory.length >= 4) return prev;
 
           const updatedTributes = prev.tributes.map(t => {
@@ -239,7 +307,6 @@ const App: React.FC = () => {
               return t;
           });
           
-          // Safe log generation using valid item variable
           const newLog = {
               id: `sponsor-${crypto.randomUUID()}`,
               text: `<span class="text-blue-400 font-bold">SPONSOR:</span> A silver parachute delivers a <span class="text-white">${item}</span> to <span class="text-gold">${target?.name}</span>.`,
@@ -316,7 +383,7 @@ const App: React.FC = () => {
                     <div className="space-y-4 text-gray-300 text-sm font-mono">
                         <p>Welcome to the Battle Royale Simulator v3.1.</p>
                         <ul className="list-disc pl-5 space-y-2">
-                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds!</li>
+                            <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds! Odds update after Training.</li>
                             <li><strong className="text-white">Map System:</strong> Tributes move on a Hex grid. They must be adjacent to interact.</li>
                             <li><strong className="text-white">Bloodbath:</strong> The start is now extremely lethal. 60% of events are fatal.</li>
                             <li><strong className="text-white">Training:</strong> A 3-day pre-game phase to build stats and alliances.</li>
@@ -375,7 +442,7 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-display font-bold text-lg text-gray-100 tracking-wider uppercase">Battle Royale</h1>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase">
-                        <span>{gameState.phase} {gameState.phase === 'Training' ? `Day ${gameState.day + 1}` : (gameState.day > 0 ? `Day ${gameState.day}` : '')}</span>
+                        <span>{gameState.phase} {gameState.phase === 'Training' ? `Day ${gameState.day}` : (gameState.day > 0 ? `Day ${gameState.day}` : '')}</span>
                     </div>
                 </div>
             </div>
@@ -395,6 +462,9 @@ const App: React.FC = () => {
                     <button onClick={() => setShowRelationships(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
                         Intel
                     </button>
+                    <button onClick={() => setShowHowToPlay(true)} className="px-3 py-1 rounded border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-[10px] font-mono uppercase font-bold">
+                        Help
+                    </button>
                  </div>
                  <div className="w-px h-8 bg-gray-800 hidden lg:block"></div>
                  <div className="text-center">
@@ -409,6 +479,27 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
+                {gameState.phase === 'Reaping' && (
+                    <button 
+                        onClick={() => setGameState(prev => ({ ...prev, tributes: generateTributes() }))}
+                        className="hidden md:flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gold text-gold rounded-full font-mono text-xs uppercase hover:bg-gold hover:text-black transition-all"
+                    >
+                        Regenerate Cast
+                    </button>
+                )}
+                
+                {gameState.day > 0 && (
+                    <button 
+                        onClick={handleRestart}
+                        className="p-2 text-red-500 hover:text-red-400 border border-red-900/30 bg-red-900/10 rounded-full"
+                        title="Force Restart"
+                    >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
+                )}
+
                 <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-400 hover:text-white">
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </button>

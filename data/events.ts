@@ -1,5 +1,7 @@
 
 
+
+
 import { GameEvent, Tribute } from '../types';
 
 // Helper conditions
@@ -38,6 +40,8 @@ export const bloodbathEvents: GameEvent[] = [
   { text: "(P1) finds a canteen full of water.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'] },
   { text: "(P1) falls down and hurts themselves.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Fail'], healthDamage: 15 },
   { text: "(P1) breaks (P2)'s nose for a basket of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Food'], healthDamage: 10 },
+  { text: "(P1) finds a trident.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Trident'] },
+  { text: "(P1) grabs a spear from inside the Cornucopia.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'], itemGain: ['Spear'] },
 ];
 
 // --- BLOODBATH FATAL (High Lethality) ---
@@ -68,6 +72,7 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) camouflages themselves in the brush.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Survival', 'Sneak'] },
   { text: "(P1) questions their sanity.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.8, tags: ['Idle', 'Sanity'] },
   { text: "(P1) practices their archery.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'], itemRequired: ['Bow', 'Arrows'] },
+  { text: "(P1) thinks about home.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
   
   // Trait Specific: Survivalist
   { text: "(P1) constructs an elaborate shelter that is hidden from view.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Survival'], traitRequired: ['Survivalist'] },
@@ -89,6 +94,7 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) crafts a crude spear from a fallen branch.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Supply'], itemGain: ['Spear'] },
   { text: "(P1) discovers a hidden cave.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Travel'] },
   { text: "(P1) finds a dead tribute and loots their body.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Supply'] },
+  { text: "(P1) sharpens their weapons.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
 
   // Item Usage
   { text: "(P1) uses their First Aid Kit to treat their wounds.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 10.0, tags: ['Heal'], itemRequired: ['First Aid Kit'], consumesItem: true, condition: (a) => isInjured(a[0]) },
@@ -106,6 +112,7 @@ export const generalEvents: GameEvent[] = [
   { text: "(P1) and (P2) work together for the day.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
   { text: "(P1) stalks (P2).", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Hunt', 'Travel'] },
   { text: "(P1) sees smoke rising in the distance, but decides not to investigate.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Travel'] },
+  { text: "(P1) and (P2) hold hands.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 0.5, tags: ['Social'] },
 
   // Starvation / Status / Fail
   { text: "(P1) passes out from hunger.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Starve'], condition: (a) => isStarving(a[0]), healthDamage: 10 },
@@ -151,12 +158,14 @@ export const fatalEvents: GameEvent[] = [
   { text: "(P1) strangles (P2) with a rope.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 0.8, tags: ['Kill'] },
   { text: "(P1) bleeds out from untreated injuries.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 2.0, tags: ['Death'], condition: (a) => isInjured(a[0]) },
   { text: "(P1) can no longer bear the nightmare and ends their own life.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.1, tags: ['Suicide'] },
+  { text: "(P1) steps on a bear trap and bleeds out.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 0.5, tags: ['Accident'] },
 
   // Weapon Specific - FIXED Infinite Ammo
   { text: "(P1) shoots an arrow into (P2)'s head.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Bow', 'Arrows'], consumesItem: ['Arrows'] },
   { text: "(P1) throws a spear into (P2)'s chest.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Spear'] },
   { text: "(P1) detonates explosives, killing (P2) and (P3) instantly.", playerCount: 3, fatalities: true, killerIndices: [0], victimIndices: [1, 2], weight: 10.0, tags: ['Kill', 'Explosive'], itemRequired: ['Explosives'], consumesItem: true },
   { text: "(P1) bashes (P2) with a shovel.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Shovel'] },
+  { text: "(P1) stabs (P2) with a trident.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'], itemRequired: ['Trident'] },
 
   // Trait Specific Kills
   { text: "(P1) mercilessly snaps (P2)'s neck.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 3.0, tags: ['Kill'], traitRequired: ['Ruthless'] },
@@ -188,6 +197,7 @@ export const nightEvents: GameEvent[] = [
   { text: "(P1) loses their grip on reality.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Insanity'], condition: (a) => isInsane(a[0]) },
   { text: "The group of (P1), (P2), and (P3) sleep in shifts.", playerCount: 3, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Social', 'Sleep'] },
   { text: "(P1), (P2), (P3) and (P4) huddle together for warmth.", playerCount: 4, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social'] },
+  { text: "(P1) looks at the night sky.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
 ];
 
 // --- ARENA EVENTS (Global) ---

@@ -14,6 +14,7 @@ type FilterType = 'ALL' | 'DEATHS' | 'MAJOR';
 
 export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [viewIndex, setViewIndex] = useState<number>(-1);
   const [filter, setFilter] = useState<FilterType>('ALL');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -27,6 +28,20 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoScroll, viewIndex]);
+
+  // Detect manual scroll to stop auto-scroll
+  const handleScroll = () => {
+      if (!scrollContainerRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      // Tolerance of 50px
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+      
+      if (!isAtBottom && autoScroll) {
+          setAutoScroll(false);
+      } else if (isAtBottom && !autoScroll) {
+          setAutoScroll(true);
+      }
+  };
 
   const isCurrent = viewIndex === -1;
   
@@ -135,12 +150,16 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
              onClick={() => { setAutoScroll(!autoScroll); if(!autoScroll) setViewIndex(-1); }}
              className={`ml-2 text-[10px] font-mono uppercase px-2 py-1 rounded border ${autoScroll ? 'text-green-400 border-green-900 bg-green-900/20' : 'text-gray-500 border-gray-700'}`}
           >
-              {autoScroll ? 'Auto-Scroll: ON' : 'Auto-Scroll: OFF'}
+              {autoScroll ? 'Auto: ON' : 'Auto: OFF'}
           </button>
       </div>
 
       {/* Log Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+      <div 
+        className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+      >
         {displayLogs.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50">
                 <p className="font-mono text-sm">Waiting for simulation data...</p>
@@ -151,44 +170,56 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, phase, day, history }) =
           const isDeath = !!log.deathNames;
           const isArena = log.type === 'Arena';
           const isInsanity = log.text.includes('Insanity');
+          
+          // Determine if we should show a divider (simplistic check based on prev log type could work, but Phase changes are mostly handled by state switch)
+          // However, training days are all in one log array sometimes.
+          const showDivider = idx > 0 && displayLogs[idx-1].type !== log.type && log.type !== 'Day';
 
           return (
-            <div 
-              key={log.id} 
-              className={`
-                relative pl-4 pr-3 py-3 rounded-r-lg border-l-2 font-mono text-sm leading-relaxed animate-fade-in
-                ${isDeath 
-                  ? 'bg-blood/5 border-blood text-gray-200' 
-                  : (isArena ? 'bg-yellow-900/20 border-yellow-600 text-yellow-100' : 'bg-gray-800/30 border-gray-700 text-gray-400')
-                }
-              `}
-              style={{ animationDelay: `${idx * 20}ms` }}
-            >
-              {/* Timestamp/ID */}
-              <span className="absolute top-3 left-[-1px] w-2 h-full bg-inherit opacity-50"></span>
-              
-              <div className="flex gap-3">
-                <span className="text-[10px] text-gray-600 pt-1 select-none">
-                   {(idx + 1).toString().padStart(3, '0')}
-                </span>
-                <div className="flex-1">
-                  <p 
-                    dangerouslySetInnerHTML={{ __html: log.text }} 
-                    className={isInsanity ? 'glitch-text' : ''}
-                  />
-                  
-                  {isDeath && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {log.deathNames!.map(name => (
-                        <span key={name} className="inline-flex items-center px-2 py-0.5 rounded bg-blood text-white text-[10px] font-bold uppercase tracking-wider">
-                          💀 {name}
-                        </span>
-                      ))}
+            <React.Fragment key={log.id}>
+                {showDivider && (
+                    <div className="flex items-center gap-2 my-4 opacity-50">
+                        <div className="h-px bg-gray-700 flex-1"></div>
+                        <span className="text-[10px] font-mono uppercase text-gray-500">{log.type} Phase</span>
+                        <div className="h-px bg-gray-700 flex-1"></div>
                     </div>
-                  )}
+                )}
+                <div 
+                className={`
+                    relative pl-4 pr-3 py-3 rounded-r-lg border-l-2 font-mono text-sm leading-relaxed animate-fade-in
+                    ${isDeath 
+                    ? 'bg-blood/5 border-blood text-gray-200' 
+                    : (isArena ? 'bg-yellow-900/20 border-yellow-600 text-yellow-100' : 'bg-gray-800/30 border-gray-700 text-gray-400')
+                    }
+                `}
+                style={{ animationDelay: `${Math.min(idx * 20, 500)}ms` }}
+                >
+                {/* Timestamp/ID */}
+                <span className="absolute top-3 left-[-1px] w-2 h-full bg-inherit opacity-50"></span>
+                
+                <div className="flex gap-3">
+                    <span className="text-[10px] text-gray-600 pt-1 select-none">
+                    {(idx + 1).toString().padStart(3, '0')}
+                    </span>
+                    <div className="flex-1">
+                    <p 
+                        dangerouslySetInnerHTML={{ __html: log.text }} 
+                        className={isInsanity ? 'glitch-text' : ''}
+                    />
+                    
+                    {isDeath && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                        {log.deathNames!.map(name => (
+                            <span key={name} className="inline-flex items-center px-2 py-0.5 rounded bg-blood text-white text-[10px] font-bold uppercase tracking-wider">
+                            💀 {name}
+                            </span>
+                        ))}
+                        </div>
+                    )}
+                    </div>
                 </div>
-              </div>
-            </div>
+                </div>
+            </React.Fragment>
           );
         })}
         {/* Bottom Padding for Mobile FAB */}

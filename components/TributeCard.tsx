@@ -1,6 +1,6 @@
 
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Tribute, TributeStatus } from '../types';
 
 interface TributeCardProps {
@@ -44,7 +44,6 @@ const stringToColor = (str: string) => {
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
-    // Position adjusted: Right side
     if (tribute.stats.health < 40) {
         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse z-20">CRITICAL</span>;
     }
@@ -58,6 +57,7 @@ const getMoodBadge = (tribute: Tribute) => {
 };
 
 export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, onBet, canSponsor, sponsorMode, showOdds, isUserBet }) => {
+  const [isShaking, setIsShaking] = useState(false);
   const isDead = tribute.status === TributeStatus.Dead;
   const districtColor = DISTRICT_COLORS[tribute.district] || 'border-gray-500';
 
@@ -67,6 +67,16 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
 
   const allianceColor = tribute.allianceId && !isDead ? stringToColor(tribute.allianceId) : null;
 
+  const handleSponsorClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (tribute.inventory.length >= 4) {
+          setIsShaking(true);
+          setTimeout(() => setIsShaking(false), 500);
+      } else {
+          onSponsor?.(tribute.id);
+      }
+  };
+
   return (
     <div className={`
       relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out
@@ -75,30 +85,41 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
         : (sponsorMode ? 'bg-panel border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1')
       }
       ${isUserBet ? 'ring-2 ring-gold shadow-[0_0_15px_rgba(251,191,36,0.4)]' : ''}
-    `}>
+      ${isShaking ? 'translate-x-[-5px] ring-2 ring-red-500' : ''}
+    `}
+    style={isShaking ? { animation: 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both' } : {}}
+    >
+      <style>
+          {`
+            @keyframes shake {
+                10%, 90% { transform: translate3d(-1px, 0, 0); }
+                20%, 80% { transform: translate3d(2px, 0, 0); }
+                30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+                40%, 60% { transform: translate3d(4px, 0, 0); }
+            }
+          `}
+      </style>
+
       {allianceColor && (
           <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-1/2 rounded-r-md" style={{ backgroundColor: allianceColor }} title="In Alliance"></div>
       )}
 
-      {/* Mood Badge */}
       {!isDead && getMoodBadge(tribute)}
       
-      {/* Alive/Dead Indicator Dot - Moved slightly if Badge exists */}
       <div className={`absolute top-3 right-3 w-2 h-2 rounded-full z-10 ${isDead ? 'bg-gray-700' : 'bg-green-500 animate-pulse'}`}></div>
 
-      {/* Bet Badge - Moved to Top Left to avoid overlap */}
       {isUserBet && (
           <div className="absolute -top-2 -left-1 bg-gold text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-30">
               YOUR BET
           </div>
       )}
 
-      {/* Interaction Overlay */}
+      {/* Desktop Interaction Overlay */}
       {!isDead && (
-          <div className={`absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[1px] transition-opacity duration-200 ${sponsorMode || (showOdds && !isUserBet) ? 'opacity-100 bg-black/40' : 'opacity-0 pointer-events-none'}`}>
+          <div className={`hidden md:flex absolute inset-0 z-20 items-center justify-center backdrop-blur-[1px] transition-opacity duration-200 ${sponsorMode || (showOdds && !isUserBet) ? 'opacity-100 bg-black/40' : 'opacity-0 pointer-events-none'}`}>
              {sponsorMode && canSponsor && (
                  <button 
-                    onClick={(e) => { e.stopPropagation(); onSponsor?.(tribute.id); }}
+                    onClick={handleSponsorClick}
                     className="bg-gold text-black font-bold font-display px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-110 transition-transform"
                  >
                     SPONSOR
@@ -203,6 +224,27 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
                 </div>
             </div>
           )}
+
+          {/* Mobile Actions (Bottom of Card) */}
+          <div className="md:hidden flex gap-2 mt-2 pt-2 border-t border-gray-800">
+             {sponsorMode && canSponsor && (
+                 <button 
+                    onClick={handleSponsorClick}
+                    className="flex-1 bg-gold text-black text-[10px] font-bold font-display py-1 rounded-full shadow"
+                 >
+                    SPONSOR
+                 </button>
+             )}
+             {showOdds && !isUserBet && onBet && (
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); onBet(tribute.id); }}
+                    className="flex-1 bg-purple-600 text-white text-[10px] font-bold font-mono py-1 rounded-full shadow"
+                 >
+                    BET ({tribute.odds})
+                 </button>
+             )}
+          </div>
+
         </div>
       )}
     </div>

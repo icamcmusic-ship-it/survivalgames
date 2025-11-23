@@ -22,13 +22,22 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
   };
 
   if (showSummary) {
+      // Determine winner
+      const alive = allTributes.filter(t => t.status === TributeStatus.Alive);
+      const winner = alive.length > 0 ? alive[0] : allTributes[0]; // Fallback if everyone died
+
       return (
           <div className="h-full flex flex-col p-6 animate-fade-in relative z-20">
               <div className="flex justify-between items-center mb-4">
                   <h2 className="font-display text-2xl text-white font-bold">Round Summary</h2>
                   <button onClick={() => setShowSummary(false)} className="text-gold font-bold uppercase text-sm border border-gold px-3 py-1 rounded hover:bg-gold hover:text-black transition-colors">Back to Recap</button>
               </div>
-              <PostGameSummary tributes={allTributes} winner={allTributes.find(t => t.status === TributeStatus.Alive) || allTributes[0]} />
+              <PostGameSummary 
+                tributes={allTributes} 
+                winner={winner} 
+                fallenTributes={fallen} // We assume 'fallen' here is just this round's fallen? No, App passes all fallen? 
+                // Actually App passes `gameState.fallenTributes` which is cumulative list in order of death. Correct.
+              />
               <div className="mt-4 flex justify-end">
                   <button onClick={onNext} className="px-6 py-2 bg-gray-800 text-gray-300 font-mono uppercase font-bold border border-gray-600 hover:bg-gray-700">Resume Game</button>
               </div>

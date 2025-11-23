@@ -52,13 +52,12 @@ const getRandomTraits = (district: number): Trait[] => {
   return shuffled.slice(0, num);
 };
 
-// Monte Carlo Simulation for Odds
-const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], simulations = 600): string => {
+// Monte Carlo Simulation for Odds - Exported for re-calc
+export const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], simulations = 600): string => {
     let wins = 0;
     
     for (let i = 0; i < simulations; i++) {
         // Create simplified roster with Randomized Power (Form)
-        // We add randomness here so even weak tributes can have a "good run"
         let roster = allTributes.map(t => {
             let power = 50; 
             
@@ -75,7 +74,7 @@ const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], 
             if (t.traits.includes('Underdog')) power += 8;
             if (t.traits.includes('Charming')) power += 5;
 
-            // Random Day-to-Day variance (The "Any given Sunday" factor)
+            // Random Day-to-Day variance
             power += Math.random() * 40; 
 
             return {
@@ -88,7 +87,6 @@ const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], 
         let activeCount = roster.length;
         
         while (activeCount > 1) {
-            // Pick two random alive fighters
             let idx1 = Math.floor(Math.random() * roster.length);
             while (!roster[idx1].alive) idx1 = Math.floor(Math.random() * roster.length);
 
@@ -98,18 +96,13 @@ const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], 
             const f1 = roster[idx1];
             const f2 = roster[idx2];
             
-            // Probabilistic Combat
-            // Instead of f1.power > f2.power, we use a weighted roll.
-            // This allows a weaker tribute to occasionally beat a stronger one.
             const totalPower = f1.power + f2.power;
             const roll = Math.random() * totalPower;
 
             if (roll < f1.power) {
-                // f1 wins
                 f2.alive = false;
-                f1.power += 5; // Momentum
+                f1.power += 5; 
             } else {
-                // f2 wins
                 f1.alive = false;
                 f2.power += 5;
             }
@@ -136,6 +129,13 @@ const calculateSimulatedOdds = (targetTribute: Tribute, allTributes: Tribute[], 
     if (winRate >= 0.02) return "30/1";
     if (winRate >= 0.01) return "50/1";
     return "75/1";
+};
+
+export const recalculateAllOdds = (tributes: Tribute[]): Tribute[] => {
+    return tributes.map(t => ({
+        ...t,
+        odds: calculateSimulatedOdds(t, tributes)
+    }));
 };
 
 export const generateTributes = (): Tribute[] => {
@@ -168,7 +168,7 @@ export const generateTributes = (): Tribute[] => {
       traits: traitsM,
       relationships: {}, 
       notes: [],
-      odds: "TBD", // Calc later
+      odds: "TBD", 
       trainingScore: 0
     });
 
@@ -594,16 +594,6 @@ export const simulatePhase = (
           t.stats.health += 5;
       }
 
-      // Alliance checks - Fix fragmentation
-      if (t.allianceId) {
-          let allianceMembers = Array.from(tributesMap.values()).filter(m => m.allianceId === t.allianceId && m.id !== t.id);
-          let avgRel = allianceMembers.reduce((acc, m) => acc + (t.relationships[m.id] || 0), 0) / (allianceMembers.length || 1);
-          
-          if (avgRel < -20 || (t.traits.includes('Devious') && Math.random() < 0.1)) {
-              t.allianceId = undefined; // Leave alliance
-          }
-      }
-
       tributesMap.forEach(other => {
           if (t.id === other.id || other.status === TributeStatus.Dead) return;
           const currentRel = t.relationships[other.id] || 0;
@@ -800,7 +790,6 @@ export const simulatePhase = (
 
     if (chosenEvent.itemGain) actors[0].inventory.push(...chosenEvent.itemGain);
     if (chosenEvent.itemRequired && chosenEvent.consumesItem) {
-        // Fix: logic for consume
         const itemsToRemove = Array.isArray(chosenEvent.consumesItem) ? chosenEvent.consumesItem : chosenEvent.itemRequired;
         itemsToRemove.forEach(item => {
             const idx = actors[0].inventory.indexOf(item);
@@ -822,7 +811,7 @@ export const simulatePhase = (
     }
     if (chosenEvent.tags?.includes('Sleep')) actors[0].stats.exhaustion = 0;
 
-    // Travel logic (Hex Map)
+    // Travel logic (Hex Map) - Fixes Drift
     if (chosenEvent.tags?.includes('Travel') || chosenEvent.tags?.includes('Flee') || chosenEvent.tags?.includes('Hunt')) {
         const directions = [
             {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
@@ -830,10 +819,15 @@ export const simulatePhase = (
         ];
         const move = directions[Math.floor(Math.random() * directions.length)];
         actors.forEach(a => {
+            const prevQ = a.coordinates.q;
+            const prevR = a.coordinates.r;
             a.coordinates.q += move.q;
             a.coordinates.r += move.r;
-            if (Math.abs(a.coordinates.q) > 5) a.coordinates.q = Math.sign(a.coordinates.q) * 5;
-            if (Math.abs(a.coordinates.r) > 5) a.coordinates.r = Math.sign(a.coordinates.r) * 5;
+            // Hex boundary check (Distance from center <= 5)
+            if (Math.abs(a.coordinates.q + a.coordinates.r) > 5 || Math.abs(a.coordinates.q) > 5 || Math.abs(a.coordinates.r) > 5) {
+                a.coordinates.q = prevQ;
+                a.coordinates.r = prevR;
+            }
         });
     }
 
@@ -906,6 +900,23 @@ export const simulatePhase = (
       deathNames: deathNames.length > 0 ? deathNames : undefined
     });
   }
+
+  // --- Cleanup: Fragmentation ---
+  // Check for 1-person alliances and disband them
+  const allianceCounts = new Map<string, number>();
+  tributesMap.forEach(t => {
+      if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
+          allianceCounts.set(t.allianceId, (allianceCounts.get(t.allianceId) || 0) + 1);
+      }
+  });
+  tributesMap.forEach(t => {
+      if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
+          if (allianceCounts.get(t.allianceId)! < 2) {
+              t.allianceId = undefined;
+          }
+      }
+  });
+
 
   return {
     updatedTributes: Array.from(tributesMap.values()),
