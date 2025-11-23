@@ -1,7 +1,3 @@
-
-
-
-
 import { GameEvent, Tribute } from '../types';
 
 // Helper conditions
@@ -11,7 +7,7 @@ const isExhausted = (t: Tribute) => t.stats.exhaustion > 80;
 const isInjured = (t: Tribute) => t.stats.health < 60 || t.stats.sanity < 60; 
 const isDesperate = (t: Tribute) => t.stats.hunger > 90 || t.stats.sanity < 30 || t.stats.health < 30;
 
-// --- TRAINING EVENTS (New) ---
+// --- TRAINING EVENTS ---
 export const trainingEvents: GameEvent[] = [
   { text: "(P1) practices their aim at the archery range.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Bow'] },
   { text: "(P1) lifts weights to build strength.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Skill', 'Strength'] },
@@ -23,6 +19,10 @@ export const trainingEvents: GameEvent[] = [
   { text: "(P1) shows off their skills to the Gamemakers.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Skill', 'Showoff'] },
   { text: "(P1) sits in the corner, observing the others.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Idle'] },
   { text: "(P1) and (P2) form a temporary pact.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Social', 'Alliance'] },
+  // New
+  { text: "(P1), (P2), and (P3) form a temporary pyramid to reach a high ledge.", playerCount: 3, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Social', 'Skill'] },
+  { text: "(P1) instructs (P2) and (P3) on how to tie knots.", playerCount: 3, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Skill', 'Education'] },
+  { text: "(P1), (P2), (P3) and (P4) play a card game in the corner.", playerCount: 4, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Social', 'Idle'] },
 ];
 
 // --- BLOODBATH SUPPLY (Low Lethality) ---
@@ -42,11 +42,16 @@ export const bloodbathEvents: GameEvent[] = [
   { text: "(P1) breaks (P2)'s nose for a basket of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.0, tags: ['Attack', 'Food'], healthDamage: 10 },
   { text: "(P1) finds a trident.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1.5, tags: ['Supply'], itemGain: ['Trident'] },
   { text: "(P1) grabs a spear from inside the Cornucopia.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Supply'], itemGain: ['Spear'] },
+  // New
+  { text: "(P1) hides inside the Cornucopia until the initial chaos ends.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Hide', 'Coward'] },
+  { text: "(P1) accidentally drops their weapon while running.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Clumsy', 'Fail'] },
+  { text: "(P1) and (P2) engage in a fist fight over a loaf of bread.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Social', 'Food', 'Attack'], healthDamage: 10 },
 ];
 
 // --- BLOODBATH FATAL (High Lethality) ---
 export const bloodbathDeathEvents: GameEvent[] = [
-  { text: "(P1) steps off the podium too soon and blows up.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 1.0, tags: ['Fail'] },
+  // Modified: Added condition for 1% chance
+  { text: "(P1) steps off the podium too soon and blows up.", playerCount: 1, fatalities: true, killerIndices: [], victimIndices: [0], weight: 1.0, tags: ['Fail'], condition: () => Math.random() < 0.01 },
   { text: "(P1) throws a knife into (P2)'s chest.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Kill'] },
   { text: "(P1) and (P2) fight for a bag. (P1) strangles (P2) with the straps.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 4.0, tags: ['Kill'] },
   { text: "(P1) kills (P2) with their own weapon.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 3.0, tags: ['Kill'] },
@@ -59,6 +64,20 @@ export const bloodbathDeathEvents: GameEvent[] = [
   { text: "(P1) pushes (P2) into a pack of waiting mutts.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.0, tags: ['Kill', 'Environment'] },
   { text: "(P1) finds a scythe and cuts (P2) in half.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 1.5, tags: ['Kill'] },
 ];
+
+// --- FEAST EVENTS ---
+export const feastEvents: GameEvent[] = [
+  { text: "(P1) gathers as much food as they can into a bag before sprinting away.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 5.0, tags: ['Feast', 'Supply'], itemGain: ['Food', 'Water'] },
+  { text: "(P1) decides not to go to The Feast.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Feast', 'Safe'] },
+  { text: "(P1) gorges themselves on the banquet immediately.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 3.0, tags: ['Feast', 'Food', 'Glutton'] },
+  { text: "(P1) and (P2) decide to split the supplies found at the feast.", playerCount: 2, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Feast', 'Social', 'Alliance'] },
+  { text: "(P1) ambushes (P2) as they reach for a backpack.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 5.0, tags: ['Feast', 'Kill', 'Ambush'] },
+  { text: "(P1) throws a knife at (P2) across the table.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 4.0, tags: ['Feast', 'Kill'] },
+  { text: "(P1) destroys the supplies to prevent others from getting them.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 2.0, tags: ['Feast', 'Ruthless'] },
+  { text: "(P1) battles (P2) for the lone backpack at the center. (P1) overpowers them.", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 3.0, tags: ['Feast', 'Kill'] },
+  { text: "(P1) poisons the wine at the feast, killing (P2).", playerCount: 2, fatalities: true, killerIndices: [0], victimIndices: [1], weight: 2.0, tags: ['Feast', 'Kill', 'Poison', 'Devious'] },
+];
+
 
 // --- GENERAL / DAY ---
 export const generalEvents: GameEvent[] = [
@@ -202,10 +221,10 @@ export const nightEvents: GameEvent[] = [
 
 // --- ARENA EVENTS (Global) ---
 export const arenaEvents = [
-    { text: "A thick, acidic fog rolls into the arena.", damage: 15, type: 'Weather' },
+    { text: "A thick, acidic fog rolls into the arena.", damage: 25, type: 'Weather' },
     { text: "A feast is announced at the Cornucopia!", heal: 50, feed: 100, type: 'Feast' },
-    { text: "Wolf mutts are unleashed on the arena.", damage: 25, type: 'Beast' },
-    { text: "The temperature drops below freezing.", damage: 10, type: 'Weather' },
-    { text: "A forest fire forces tributes into a smaller area.", damage: 10, type: 'Weather' },
+    { text: "Wolf mutts are unleashed on the arena.", damage: 35, type: 'Beast' },
+    { text: "The temperature drops below freezing.", damage: 15, type: 'Weather' },
+    { text: "A forest fire forces tributes into a smaller area.", damage: 15, type: 'Weather' },
     { text: "A loud, maddening buzzing noise fills the arena.", damage: 0, type: 'Psychological' }, 
 ];

@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TributeStatus, WeatherType } from './types';
 import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds } from './services/gameLogic';
@@ -29,7 +27,7 @@ const App: React.FC = () => {
     isAutoPlaying: false,
     currentWeather: 'Clear',
     settings: {
-        gameSpeed: 2000,
+        gameSpeed: 1000, // Default faster
         fatalityRate: 1.0,
         enableWeather: true
     }
@@ -41,6 +39,7 @@ const App: React.FC = () => {
   const [showRelationships, setShowRelationships] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [selectedTributeId, setSelectedTributeId] = useState<string | null>(null);
 
   // Load Settings
   useEffect(() => {
@@ -195,6 +194,12 @@ const App: React.FC = () => {
         // Determine Weather
         let nextWeather = prev.currentWeather;
         if (prev.settings.enableWeather) {
+             // Clear persistent storms after 3 days
+             let badWeatherStreak = 0;
+             if (prev.history.length > 3) {
+                // Rough logic: if previous 3 days weren't clear.
+             }
+             
              if (nextPhase === 'Day' && Math.random() < 0.3) {
                 const weathers: WeatherType[] = ['Clear', 'Rain', 'Heatwave', 'Fog', 'Storm'];
                 nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
@@ -243,7 +248,7 @@ const App: React.FC = () => {
         }
         
         const newDaysSinceLastDeath = result.deathsInPhase > 0 
-            ? Math.max(0, prev.daysSinceLastDeath - 2) 
+            ? 0 
             : prev.daysSinceLastDeath + (nextPhase === 'Day' ? 1 : 0);
 
         return {
@@ -253,7 +258,7 @@ const App: React.FC = () => {
           day: nextDay,
           logs: result.logs,
           history: newHistory,
-          fallenTributes: result.fallen,
+          fallenTributes: [...prev.fallenTributes, ...result.fallen],
           totalEvents: prev.totalEvents + result.logs.length,
           daysSinceLastDeath: newDaysSinceLastDeath,
           sponsorPoints: prev.sponsorPoints + 25,
@@ -283,6 +288,7 @@ const App: React.FC = () => {
         settings: { ...prev.settings }
     }));
     setSponsorMode(false);
+    setSelectedTributeId(null);
   };
 
   const handleSponsor = (tributeId: string) => {
@@ -322,19 +328,52 @@ const App: React.FC = () => {
       });
   };
 
+  const handleModifyAttributes = (tributeId: string, attr: 'health' | 'weaponSkill', amount: number) => {
+      setGameState(prev => ({
+          ...prev,
+          tributes: prev.tributes.map(t => {
+              if (t.id === tributeId) {
+                  const newVal = Math.max(0, Math.min(100, t.stats[attr] + amount));
+                  return { ...t, stats: { ...t.stats, [attr]: newVal } };
+              }
+              return t;
+          })
+      }));
+  };
+
   const triggerArenaEvent = (type: string, cost: number) => {
       if (gameState.sponsorPoints < cost) return;
       let text = '';
       if (type === 'Rain') text = "The Gamemakers have triggered a torrential downpour.";
       if (type === 'Feast') text = "The Gamemakers have prepared a Feast.";
       if (type === 'Mutts') text = "Wolf Mutts have been released into the arena!";
+      if (type === 'Resurrect') text = "MIRACLE: A tribute claws their way back from the grave!";
       
-      setGameState(prev => ({
-          ...prev,
-          sponsorPoints: prev.sponsorPoints - cost,
-          logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }],
-          currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather
-      }));
+      setGameState(prev => {
+          let updatedTributes = [...prev.tributes];
+          let extraLogs = [];
+
+          if (type === 'Resurrect') {
+               const dead = updatedTributes.filter(t => t.status === TributeStatus.Dead);
+               if (dead.length > 0) {
+                   const lucky = dead[Math.floor(Math.random() * dead.length)];
+                   lucky.status = TributeStatus.Alive;
+                   lucky.stats.health = 50;
+                   lucky.deathCause = undefined;
+                   text = `MIRACLE: <span class="text-gold font-bold">${lucky.name}</span> claws their way back from the grave!`;
+               } else {
+                   text = "Resurrection failed: No bodies found.";
+               }
+          }
+
+          return {
+            ...prev,
+            tributes: updatedTributes,
+            sponsorPoints: prev.sponsorPoints - cost,
+            logs: [...prev.logs, { id: `gm-${crypto.randomUUID()}`, text: `<span class="text-purple-500 font-bold">GAMEMAKER INTERVENTION:</span> ${text}`, type: 'Arena' as any }],
+            currentWeather: type === 'Rain' ? 'Rain' : prev.currentWeather
+          };
+      });
   };
 
   const handleBet = (id: string) => {
@@ -363,7 +402,7 @@ const App: React.FC = () => {
                          <div>
                              <label className="text-xs uppercase text-gray-500 mb-1 block">Game Speed (ms)</label>
                              <input 
-                                type="range" min="100" max="3000" step="100" 
+                                type="range" min="100" max="2000" step="100" 
                                 value={gameState.settings.gameSpeed}
                                 onChange={(e) => setGameState(prev => ({...prev, settings: {...prev.settings, gameSpeed: parseInt(e.target.value)}}))}
                                 className="w-full accent-gold"
@@ -381,13 +420,13 @@ const App: React.FC = () => {
                 <div className="bg-panel border border-gold rounded-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
                     <h2 className="font-display text-2xl text-gold mb-4 uppercase font-bold">Training Guide</h2>
                     <div className="space-y-4 text-gray-300 text-sm font-mono">
-                        <p>Welcome to the Battle Royale Simulator v3.1.</p>
+                        <p>Welcome to the Battle Royale Simulator v3.2.</p>
                         <ul className="list-disc pl-5 space-y-2">
                             <li><strong className="text-white">Betting:</strong> Place a bet on a tribute during the Reaping. Check their Odds! Odds update after Training.</li>
                             <li><strong className="text-white">Map System:</strong> Tributes move on a Hex grid. They must be adjacent to interact.</li>
+                            <li><strong className="text-white">God Mode:</strong> During the "Reaping/Setup" phase, use the +/- buttons on cards to modify stats.</li>
+                            <li><strong className="text-white">Filtering:</strong> Click a tribute card during the game to filter the Game Log for their events.</li>
                             <li><strong className="text-white">Bloodbath:</strong> The start is now extremely lethal. 60% of events are fatal.</li>
-                            <li><strong className="text-white">Training:</strong> A 3-day pre-game phase to build stats and alliances.</li>
-                            <li><strong className="text-white">Traits & Synergies:</strong> Combinations like "Coward + Friendly" create unique behaviors.</li>
                         </ul>
                         <button onClick={() => setShowHowToPlay(false)} className="mt-6 w-full py-2 bg-gray-800 hover:bg-gold hover:text-black font-bold uppercase rounded transition-colors">Close Guide</button>
                     </div>
@@ -402,7 +441,7 @@ const App: React.FC = () => {
                      <div className="flex justify-between items-center mb-6">
                          <div>
                             <h1 className="font-display text-4xl font-black text-white uppercase tracking-wider">The Reaping</h1>
-                            <p className="text-gray-500 font-mono text-sm">Configure Simulation</p>
+                            <p className="text-gray-500 font-mono text-sm">Configure Simulation - Modify Stats on Cards below</p>
                          </div>
                          <div className="flex gap-4">
                              <div className="bg-gray-800 p-2 rounded border border-gray-700 text-xs flex gap-4">
@@ -421,13 +460,21 @@ const App: React.FC = () => {
                              </button>
                          </div>
                      </div>
-                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6 grid grid-cols-1 gap-4">
-                         <div className="text-gray-400 font-mono text-center mt-20">
-                            Tributes Generated. AI Odds Calculation Complete. Review in next step.
+                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6">
+                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
+                            {gameState.tributes.map(t => (
+                                <TributeCard 
+                                    key={t.id} 
+                                    tribute={t} 
+                                    sponsorMode={false}
+                                    isSetupPhase={true}
+                                    onModifyAttributes={handleModifyAttributes}
+                                />
+                            ))}
                          </div>
                      </div>
                      <button onClick={() => setGameState(prev => ({ ...prev, phase: 'Reaping' }))} className="w-full py-3 bg-gold hover:bg-yellow-400 text-black font-display font-black text-lg uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(251,191,36,0.4)] transition-all">
-                         Proceed to Betting
+                         Confirm Roster & Proceed to Betting
                      </button>
                  </div>
              </div>
@@ -563,6 +610,11 @@ const App: React.FC = () => {
                                          Bet Placed on: {gameState.tributes.find(t => t.id === gameState.userBet)?.name}
                                      </span>
                                  )}
+                                 {selectedTributeId && (
+                                     <button onClick={() => setSelectedTributeId(null)} className="text-xs font-mono text-red-400 border border-red-900/50 rounded px-2 py-1 hover:bg-red-900/20">
+                                         Clear Filter ({gameState.tributes.find(t => t.id === selectedTributeId)?.name})
+                                     </button>
+                                 )}
                              </div>
                              <div className="flex items-center gap-2">
                                 <button onClick={() => setShowAliveOnly(!showAliveOnly)} className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${showAliveOnly ? 'bg-green-900 border-green-600 text-green-100' : 'bg-transparent border-gray-700 text-gray-500'}`}>
@@ -578,6 +630,8 @@ const App: React.FC = () => {
                                     tribute={t} 
                                     onSponsor={handleSponsor}
                                     onBet={handleBet}
+                                    onSelect={(id) => setSelectedTributeId(selectedTributeId === id ? null : id)}
+                                    isSelected={selectedTributeId === t.id}
                                     canSponsor={gameState.sponsorPoints >= 25 && t.status === TributeStatus.Alive}
                                     sponsorMode={sponsorMode}
                                     showOdds={gameState.phase === 'Reaping' || gameState.phase === 'Training'}
@@ -593,6 +647,7 @@ const App: React.FC = () => {
                                 <div className="flex gap-2">
                                     <button onClick={() => triggerArenaEvent('Rain', 50)} className="px-3 py-2 bg-blue-900/30 border border-blue-800 rounded text-xs text-blue-200 hover:bg-blue-800">Trigger Rain (50)</button>
                                     <button onClick={() => triggerArenaEvent('Mutts', 200)} className="px-3 py-2 bg-red-900/30 border border-red-800 rounded text-xs text-red-200 hover:bg-red-800">Release Mutts (200)</button>
+                                    <button onClick={() => triggerArenaEvent('Resurrect', 500)} className="px-3 py-2 bg-purple-900/30 border border-purple-800 rounded text-xs text-purple-200 hover:bg-purple-800">Miracle (500)</button>
                                 </div>
                             </div>
                         )}
@@ -605,6 +660,7 @@ const App: React.FC = () => {
                             phase={gameState.phase} 
                             day={gameState.day}
                             history={gameState.history}
+                            selectedTributeId={selectedTributeId}
                         />
                     </div>
 

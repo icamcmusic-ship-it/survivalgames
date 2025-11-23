@@ -1,10 +1,8 @@
-
-
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
-import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents } from '../data/events';
+import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents, feastEvents } from '../data/events';
 
 // --- Config ---
-const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton'];
+const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton', 'Traumatized', 'Broken'];
 
 const ITEM_VALUES: Record<string, number> = {
     'Explosives': 20,
@@ -292,6 +290,14 @@ const hasSynergy = (actors: Tribute[], type: 'Combat' | 'Survival'): boolean => 
     return false;
 };
 
+const clampStats = (t: Tribute) => {
+    t.stats.health = Math.max(0, Math.min(100, t.stats.health));
+    t.stats.hunger = Math.max(0, Math.min(100, t.stats.hunger));
+    t.stats.sanity = Math.max(0, Math.min(100, t.stats.sanity));
+    t.stats.exhaustion = Math.max(0, Math.min(100, t.stats.exhaustion));
+    t.stats.weaponSkill = Math.max(0, Math.min(100, t.stats.weaponSkill));
+};
+
 const calculateEventScore = (
     event: GameEvent, 
     actors: Tribute[], 
@@ -323,6 +329,11 @@ const calculateEventScore = (
   // Age bias
   if (mainActor.age >= 16 && (event.tags?.includes('Kill') || event.tags?.includes('Attack'))) score *= 1.2;
   if (mainActor.age <= 13 && (event.tags?.includes('Flee') || event.tags?.includes('Hide'))) score *= 1.2;
+
+  // Combat Skill (New)
+  if (event.tags?.includes('Kill') || event.tags?.includes('Attack')) {
+      score *= (1 + mainActor.stats.weaponSkill / 100);
+  }
 
   // Synergies
   if (actors.length > 1) {
@@ -376,9 +387,13 @@ const calculateEventScore = (
       if (mainActor.stats.health < 60 || mainActor.stats.sanity < 50) score *= 5.0;
   }
 
+  // Suicide Curve (Smoother)
   if (actors.length === 1 && event.tags?.includes('Suicide')) {
-      if (mainActor.stats.sanity < 10 && mainActor.stats.health < 30) score *= 100.0;
-      else score = 0;
+      if (mainActor.stats.sanity < 20) {
+          score *= (1 + (20 - mainActor.stats.sanity) * 2); // Gradual increase
+      } else {
+          score = 0;
+      }
   }
 
   // Relationship (Combat)
@@ -416,10 +431,15 @@ const calculateEventScore = (
     score *= aggressionMultiplier;
   }
 
+  if (phase === 'Night' && event.tags?.includes('Sleep')) {
+      // Reduce sleep chance as game progresses
+      score *= Math.max(0.1, 1.0 - (day * 0.05));
+  }
+
   return Math.max(0, score);
 };
 
-// --- Training Simulation (New Robust Logic) ---
+// --- Training Simulation ---
 export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes: Tribute[], logs: LogEntry[] } => {
     const logs: LogEntry[] = [];
     const tributesMap = new Map(currentTributes.map(t => [t.id, {...t, relationships: {...t.relationships}, stats: {...t.stats}, traits: [...t.traits]}]));
@@ -427,22 +447,26 @@ export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes:
     const availableIds = shuffle(tributes.map(t => t.id));
 
     while (availableIds.length > 0) {
-        const actorId = availableIds.pop();
-        if (!actorId) break;
-        const actor = tributesMap.get(actorId)!;
-
-        // Grouping
         let groupSize = Math.random() < 0.7 ? 1 : 2;
+        
+        // Fix for odd remainder
+        if (availableIds.length === 1) groupSize = 1;
+
+        const actorId = availableIds.pop()!;
+        const actor = tributesMap.get(actorId)!;
         const group: Tribute[] = [actor];
 
         if (groupSize === 2 && availableIds.length > 0) {
-            const partnerId = availableIds.pop();
-            if (partnerId) group.push(tributesMap.get(partnerId)!);
+            const partnerId = availableIds.pop()!;
+            group.push(tributesMap.get(partnerId)!);
         }
 
         // Pick Event
         const validEvents = trainingEvents.filter(e => e.playerCount === group.length);
-        const event = validEvents[Math.floor(Math.random() * validEvents.length)];
+        // Fallback
+        const event = validEvents.length > 0 
+            ? validEvents[Math.floor(Math.random() * validEvents.length)]
+            : { text: "(P1) trains in silence.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [], weight: 1 };
 
         // Effects
         group.forEach(t => {
@@ -466,6 +490,7 @@ export const simulateTraining = (currentTributes: Tribute[]): { updatedTributes:
             if (event.tags?.includes('Stealth')) {
                 if (!t.traits.includes('Devious') && Math.random() < 0.2) t.traits.push('Devious');
             }
+            clampStats(t);
         });
 
         logs.push({
@@ -528,13 +553,14 @@ export const simulatePhase = (
               t.stats.hunger = 0;
               t.stats.health = Math.min(100, t.stats.health + 20);
               t.coordinates = { q: 0, r: 0 };
+              clampStats(t);
           }
       });
   }
 
   // --- Global Arena Events ---
   let arenaChance = 0.15;
-  if (day > maxDays) arenaChance = 0.5;
+  if (day > maxDays) arenaChance = 0.40; // Increased late game
 
   if (phase === 'Day' && Math.random() < arenaChance && !isFeast) {
       const arenaEvent = arenaEvents[Math.floor(Math.random() * arenaEvents.length)];
@@ -549,6 +575,9 @@ export const simulatePhase = (
               if (arenaEvent.damage) t.stats.health -= arenaEvent.damage;
               if (arenaEvent.heal) t.stats.health = 100;
               if (arenaEvent.feed) t.stats.hunger = 0;
+              if (arenaEvent.type === 'Psychological') t.stats.sanity -= 20;
+
+              clampStats(t);
               
               if (t.stats.health <= 0) {
                   t.status = TributeStatus.Dead;
@@ -563,9 +592,6 @@ export const simulatePhase = (
                       deathNames: [t.name]
                   });
               }
-              if (arenaEvent.type === 'Psychological') {
-                  t.stats.sanity -= 20;
-              }
           }
       });
   }
@@ -575,16 +601,21 @@ export const simulatePhase = (
     tributesMap.forEach(t => {
       if (t.status === TributeStatus.Dead) return;
       
-      let hungerGain = Math.floor(Math.random() * 10) + 5;
+      // Hunger increase with variance
+      let hungerGain = Math.floor(Math.random() * 20) + 5;
       let exhaustionGain = phase === 'Day' ? 10 : -20;
 
       if (enableWeather) {
         if (currentWeather === 'Heatwave') hungerGain += 5;
         if (currentWeather === 'Storm' && phase === 'Day') exhaustionGain += 10;
       }
-      if (t.traits.includes('Survivalist')) hungerGain -= 3; 
       
-      t.stats.hunger += Math.max(0, hungerGain);
+      // Resourcefulness check (Finding food off-screen)
+      if (t.traits.includes('Survivalist') || t.traits.includes('Trained')) {
+          if (Math.random() < 0.3) hungerGain = -10; 
+      }
+      
+      t.stats.hunger += hungerGain;
       t.stats.exhaustion += exhaustionGain;
       
       if (phase === 'Night' && t.stats.hunger < 50 && t.stats.exhaustion < 20) {
@@ -604,28 +635,35 @@ export const simulatePhase = (
           if (t.allianceId && t.allianceId === other.allianceId) modifyRelationship(t, other, 5);
       });
       
-      if (t.stats.exhaustion < 0) t.stats.exhaustion = 0;
-      if (t.stats.hunger > 100) t.stats.hunger = 100;
-      if (t.stats.health > 100) t.stats.health = 100;
+      clampStats(t);
     });
   }
 
   // --- Step 2: Director / Aggression ---
-  let aggressionMultiplier = fatalityRate;
+  // Dynamic aggression ramp
+  let aggressionMultiplier = fatalityRate * (1 + (day * 0.15));
   const aliveCount = Array.from(tributesMap.values()).filter(t => t.status === TributeStatus.Alive).length;
 
   if (daysSinceLastDeath > 2) aggressionMultiplier *= 2.0; 
   if (aliveCount <= 4) aggressionMultiplier *= 3.0; 
-  if (isFeast) aggressionMultiplier = 2.0;
+  if (isFeast) aggressionMultiplier = 3.0;
   if (phase === 'Bloodbath') aggressionMultiplier = 5.0;
 
   // Event Pool
   let basePool: GameEvent[] = [];
-  if (phase === 'Bloodbath') {
+  
+  // Stalemate Breaker
+  if (daysSinceLastDeath > 3) {
+      basePool = fatalEvents;
+  } else if (isFeast) {
+      basePool = feastEvents;
+  } else if (phase === 'Bloodbath') {
       basePool = [...bloodbathEvents, ...bloodbathDeathEvents];
+  } else if (phase === 'Night') {
+      basePool = [...nightEvents, ...fatalEvents.filter(e => e.tags?.includes('Sneak') || e.tags?.includes('Elements'))];
+  } else {
+      basePool = [...generalEvents, ...fatalEvents];
   }
-  else if (phase === 'Night') basePool = [...nightEvents, ...fatalEvents];
-  else basePool = [...generalEvents, ...fatalEvents];
 
   // --- Step 3: Action Loop ---
   let availableIds = Array.from(tributesMap.values())
@@ -633,11 +671,21 @@ export const simulatePhase = (
       .map(t => t.id);
   availableIds = shuffle(availableIds);
   
+  // Group Splitting Logic
+  if (Math.random() < 0.2 && phase === 'Day') {
+      tributesMap.forEach(t => {
+          if (t.status === TributeStatus.Alive && t.allianceId && !t.allianceId.includes('career')) {
+              if (Math.random() < 0.3) t.allianceId = undefined;
+          }
+      });
+  }
+
   while (availableIds.length > 0) {
     const actorId = availableIds.pop();
     if (!actorId) break;
     
     const actor = tributesMap.get(actorId)!;
+    // Double check dead (e.g. killed in previous loop iteration this phase)
     if (actor.status === TributeStatus.Dead) continue;
 
     let groupIds: string[] = [actorId];
@@ -655,7 +703,7 @@ export const simulatePhase = (
     
     // 1. Critical Survival
     if (actor.stats.hunger > 90 || actor.stats.health < 30) {
-        desire = 'Solo'; // Look for food/meds events
+        desire = 'Solo'; 
     }
     // 2. Insanity
     else if (actor.stats.sanity < 30) {
@@ -678,6 +726,8 @@ export const simulatePhase = (
         for (const targetId of availableIds) {
              if (groupIds.includes(targetId)) continue;
              const target = tributesMap.get(targetId)!;
+             // Ensure target is still alive (paranoia check)
+             if (target.status === TributeStatus.Dead) continue;
              if (getDistance(actor, target) > 1) continue;
 
              const relation = getRelationship(actor, target);
@@ -771,6 +821,7 @@ export const simulatePhase = (
         }
     }
 
+    // Fallback
     if (!chosenEvent) {
          if (finalGroupSize === 1) chosenEvent = { text: "(P1) wanders aimlessly.", playerCount: 1, fatalities: false, killerIndices: [], victimIndices: [] };
          else {
@@ -811,7 +862,7 @@ export const simulatePhase = (
     }
     if (chosenEvent.tags?.includes('Sleep')) actors[0].stats.exhaustion = 0;
 
-    // Travel logic (Hex Map) - Fixes Drift
+    // Travel logic (Hex Map)
     if (chosenEvent.tags?.includes('Travel') || chosenEvent.tags?.includes('Flee') || chosenEvent.tags?.includes('Hunt')) {
         const directions = [
             {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
@@ -890,6 +941,8 @@ export const simulatePhase = (
             modifyRelationship(p2, p1, -40);
         }
     }
+
+    actors.forEach(clampStats);
 
     const finalLogText = parseEventText(chosenEvent.text, actors, chosenEvent.tags);
 

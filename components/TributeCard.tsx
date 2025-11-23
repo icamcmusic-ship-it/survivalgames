@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -7,10 +5,14 @@ interface TributeCardProps {
   tribute: Tribute;
   onSponsor?: (id: string) => void;
   onBet?: (id: string) => void;
+  onModifyAttributes?: (id: string, attr: 'health' | 'weaponSkill', amount: number) => void;
   canSponsor?: boolean;
   sponsorMode: boolean;
   showOdds?: boolean;
   isUserBet?: boolean;
+  isSetupPhase?: boolean;
+  onSelect?: (id: string) => void;
+  isSelected?: boolean;
 }
 
 const DISTRICT_COLORS: Record<number, string> = {
@@ -56,7 +58,7 @@ const getMoodBadge = (tribute: Tribute) => {
     return null;
 };
 
-export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, onBet, canSponsor, sponsorMode, showOdds, isUserBet }) => {
+export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, onBet, canSponsor, sponsorMode, showOdds, isUserBet, isSetupPhase, onModifyAttributes, onSelect, isSelected }) => {
   const [isShaking, setIsShaking] = useState(false);
   const isDead = tribute.status === TributeStatus.Dead;
   const districtColor = DISTRICT_COLORS[tribute.district] || 'border-gray-500';
@@ -77,14 +79,21 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
       }
   };
 
+  const handleCardClick = () => {
+      if (onSelect) onSelect(tribute.id);
+  };
+
   return (
-    <div className={`
-      relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out
+    <div 
+        onClick={handleCardClick}
+        className={`
+      relative group flex flex-col p-3 rounded-xl border transition-all duration-300 ease-in-out cursor-pointer
       ${isDead 
         ? 'bg-black/80 border-gray-800 opacity-60 grayscale' 
         : (sponsorMode ? 'bg-panel border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-panel border-gray-800 hover:border-gray-500 hover:shadow-lg hover:shadow-gold/5 hover:-translate-y-1')
       }
       ${isUserBet ? 'ring-2 ring-gold shadow-[0_0_15px_rgba(251,191,36,0.4)]' : ''}
+      ${isSelected ? 'ring-2 ring-blue-400 bg-blue-900/10' : ''}
       ${isShaking ? 'translate-x-[-5px] ring-2 ring-red-500' : ''}
     `}
     style={isShaking ? { animation: 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both' } : {}}
@@ -115,7 +124,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
       )}
 
       {/* Desktop Interaction Overlay */}
-      {!isDead && (
+      {!isDead && !isSetupPhase && (
           <div className={`hidden md:flex absolute inset-0 z-20 items-center justify-center backdrop-blur-[1px] transition-opacity duration-200 ${sponsorMode || (showOdds && !isUserBet) ? 'opacity-100 bg-black/40' : 'opacity-0 pointer-events-none'}`}>
              {sponsorMode && canSponsor && (
                  <button 
@@ -177,6 +186,26 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
         </div>
       </div>
 
+      {/* God Mode Controls */}
+      {isSetupPhase && !isDead && (
+          <div className="mb-2 p-1 bg-gray-900 rounded border border-gray-700 z-30 relative">
+              <div className="flex items-center justify-between text-[9px] text-gray-400 mb-1">
+                  <span>HP: {tribute.stats.health}</span>
+                  <div className="flex gap-1">
+                      <button onClick={(e) => {e.stopPropagation(); onModifyAttributes?.(tribute.id, 'health', -10)}} className="px-1.5 bg-red-900 text-red-200 rounded hover:bg-red-700">-</button>
+                      <button onClick={(e) => {e.stopPropagation(); onModifyAttributes?.(tribute.id, 'health', 10)}} className="px-1.5 bg-green-900 text-green-200 rounded hover:bg-green-700">+</button>
+                  </div>
+              </div>
+               <div className="flex items-center justify-between text-[9px] text-gray-400">
+                  <span>Skill: {tribute.stats.weaponSkill}</span>
+                  <div className="flex gap-1">
+                      <button onClick={(e) => {e.stopPropagation(); onModifyAttributes?.(tribute.id, 'weaponSkill', -5)}} className="px-1.5 bg-gray-700 rounded hover:bg-gray-600">-</button>
+                      <button onClick={(e) => {e.stopPropagation(); onModifyAttributes?.(tribute.id, 'weaponSkill', 5)}} className="px-1.5 bg-gray-700 rounded hover:bg-gray-600">+</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {!isDead && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1">
@@ -225,12 +254,12 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
             </div>
           )}
 
-          {/* Mobile Actions (Bottom of Card) */}
-          <div className="md:hidden flex gap-2 mt-2 pt-2 border-t border-gray-800">
+          {/* Mobile Actions (Bottom of Card) - Always visible on mobile if active */}
+          <div className="md:hidden flex gap-2 mt-2 pt-2 border-t border-gray-800 z-30 relative">
              {sponsorMode && canSponsor && (
                  <button 
                     onClick={handleSponsorClick}
-                    className="flex-1 bg-gold text-black text-[10px] font-bold font-display py-1 rounded-full shadow"
+                    className="flex-1 bg-gold text-black text-[10px] font-bold font-display py-2 rounded-full shadow active:scale-95 transition-transform"
                  >
                     SPONSOR
                  </button>
@@ -238,7 +267,7 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
              {showOdds && !isUserBet && onBet && (
                  <button 
                     onClick={(e) => { e.stopPropagation(); onBet(tribute.id); }}
-                    className="flex-1 bg-purple-600 text-white text-[10px] font-bold font-mono py-1 rounded-full shadow"
+                    className="flex-1 bg-purple-600 text-white text-[10px] font-bold font-mono py-2 rounded-full shadow active:scale-95 transition-transform"
                  >
                     BET ({tribute.odds})
                  </button>

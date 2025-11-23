@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -8,8 +7,8 @@ interface RelationshipGridProps {
 }
 
 export const RelationshipGrid: React.FC<RelationshipGridProps> = ({ tributes, onClose }) => {
-  // Filter only alive for clarity? Or keep all to show history. Let's keep all but sort by District.
-  const sortedTributes = [...tributes].sort((a, b) => a.district - b.district || a.id.localeCompare(b.id));
+  // Fix: Numeric sort for district, then ID
+  const sortedTributes = [...tributes].sort((a, b) => (a.district - b.district) || a.id.localeCompare(b.id));
 
   const getColor = (val: number) => {
       if (val === 0) return 'bg-gray-800';

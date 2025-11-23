@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -30,18 +29,18 @@ export const MapModal: React.FC<MapModalProps> = ({ tributes, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 backdrop-blur-sm">
-      <div className="bg-panel border border-gray-700 rounded-xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl">
+      <div className="bg-panel border border-gray-700 rounded-xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl pt-12 md:pt-0">
         <div className="p-4 border-b border-gray-800 flex justify-between items-center">
             <h2 className="font-display text-xl text-gold font-bold uppercase tracking-widest">Arena Tracker</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-white font-mono font-bold uppercase text-sm">Close Map</button>
         </div>
         
-        <div className="flex-1 overflow-auto flex items-center justify-center bg-black relative">
+        <div className="flex-1 overflow-hidden flex items-center justify-center bg-black relative">
              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
              
              {/* SVG Map */}
-             <svg width="100%" height="100%" viewBox="-400 -400 800 800">
-                 <g transform="scale(1.2)">
+             <svg width="100%" height="100%" viewBox="-300 -300 600 600" preserveAspectRatio="xMidYMid meet">
+                 <g>
                     {/* Draw Hexes */}
                     {grid.map((hex, i) => {
                         const { x, y } = hexToPixel(hex.q, hex.r);

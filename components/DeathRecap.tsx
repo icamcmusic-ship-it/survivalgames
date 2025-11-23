@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { Tribute, TributeStatus } from '../types';
 import { PostGameSummary } from './PostGameSummary';
@@ -35,8 +33,7 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
               <PostGameSummary 
                 tributes={allTributes} 
                 winner={winner} 
-                fallenTributes={fallen} // We assume 'fallen' here is just this round's fallen? No, App passes all fallen? 
-                // Actually App passes `gameState.fallenTributes` which is cumulative list in order of death. Correct.
+                fallenTributes={fallen} 
               />
               <div className="mt-4 flex justify-end">
                   <button onClick={onNext} className="px-6 py-2 bg-gray-800 text-gray-300 font-mono uppercase font-bold border border-gray-600 hover:bg-gray-700">Resume Game</button>
@@ -80,11 +77,11 @@ export const DeathRecap: React.FC<DeathRecapProps> = ({ fallen, allTributes, onN
             
             {/* Detail Popup */}
             {selectedId === t.id && (
-                <div className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-blood text-white text-xs p-2 rounded w-48 text-center shadow-xl">
+                <div className="absolute z-[100] bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-blood text-white text-xs p-3 rounded min-w-[200px] w-64 text-center shadow-xl whitespace-normal">
                     <div className="font-bold text-blood uppercase mb-1">Cause of Death</div>
-                    <div className="mb-1">{t.deathCause || 'Unknown'}</div>
+                    <div className="mb-2">{t.deathCause || 'Unknown'}</div>
                     {t.killerId && (
-                         <div className="mt-1 text-gray-500">Killer: {getKillerName(t.killerId)}</div>
+                         <div className="mt-1 pt-1 border-t border-gray-800 text-gray-500">Killer: {getKillerName(t.killerId)}</div>
                     )}
                 </div>
             )}
