@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { Tribute, TributeStatus } from '../types';
 
@@ -47,8 +48,8 @@ const stringToColor = (str: string) => {
 const getMoodBadge = (tribute: Tribute) => {
     if (tribute.status === TributeStatus.Dead) return null;
     
-    // Fix #12: Consistent Critical Threshold
-    if (tribute.stats.health < 40) {
+    // Fix #12: Consistent Critical Threshold with GameLogic (60)
+    if (tribute.stats.health < 60) {
         return <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 bg-red-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse z-20">CRITICAL</span>;
     }
     if (tribute.stats.hunger > 85) {
@@ -224,7 +225,6 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
                    <span>Health</span>
                 </div>
                 <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                  {/* Fix #12: Synced Pulse */}
                   <div 
                     className={`h-full rounded-full ${tribute.stats.health < 40 ? 'bg-red-600 animate-pulse' : 'bg-green-600'}`} 
                     style={{ width: `${healthPercent}%` }}
@@ -258,27 +258,4 @@ export const TributeCard: React.FC<TributeCardProps> = ({ tribute, onSponsor, on
           )}
 
           {/* Mobile Actions (Bottom of Card) - Always visible on mobile if active */}
-          <div className="md:hidden flex gap-2 mt-2 pt-2 border-t border-gray-800 z-30 relative">
-             {sponsorMode && canSponsor && (
-                 <button 
-                    onClick={handleSponsorClick}
-                    className="flex-1 bg-gold text-black text-[10px] font-bold font-display py-2 rounded-full shadow active:scale-95 transition-transform"
-                 >
-                    SPONSOR
-                 </button>
-             )}
-             {showOdds && !isUserBet && onBet && (
-                 <button 
-                    onClick={(e) => { e.stopPropagation(); onBet(tribute.id); }}
-                    className="flex-1 bg-purple-600 text-white text-[10px] font-bold font-mono py-2 rounded-full shadow active:scale-95 transition-transform"
-                 >
-                    BET ({tribute.odds})
-                 </button>
-             )}
-          </div>
-
-        </div>
-      )}
-    </div>
-  );
-};
+          <div className="md:hidden flex gap-2 mt-2 pt-2 border-t border-gray-80

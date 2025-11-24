@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TributeStatus, Tribute, EventType } from './types';
 import { generateTributes, simulatePhase, simulateTraining, recalculateAllOdds, advanceWeather } from './services/gameLogic';
@@ -61,10 +62,13 @@ const App: React.FC = () => {
 
       // Reaping to Training
       if (prev.phase === 'Reaping') {
+          const newLog = { id: 'reaping', text: 'The Tributes have been reaped. Let the training begin!', type: EventType.Reaping, day: 0, phase: 'Reaping' };
           return { 
             ...prev, 
             phase: 'Training', 
-            logs: [...prev.logs, { id: 'reaping', text: 'The Tributes have been reaped. Let the training begin!', type: EventType.Reaping, day: 0, phase: 'Reaping' }] 
+            logs: [...prev.logs, newLog],
+            // Capture Reaping logs into history so they aren't lost
+            history: [...prev.history, { phase: 'Reaping', day: 0, logs: [...prev.logs, newLog] }]
           };
       }
 
@@ -180,6 +184,9 @@ const App: React.FC = () => {
       const cost = 25;
       if (gameState.sponsorPoints >= cost) {
           setGameState(prev => {
+              const target = prev.tributes.find(t => t.id === id);
+              if (!target || target.status === TributeStatus.Dead) return prev;
+
               const updated = prev.tributes.map(t => {
                   if (t.id === id) {
                       return { ...t, inventory: [...t.inventory, sponsorItem] };

@@ -72,6 +72,21 @@ export interface GameEvent {
   movement?: boolean; // New: triggers coordinate update
 
   condition?: (actors: Tribute[]) => boolean;
+
+  // New features
+  effects?: {
+    hunger?: number; // Negative reduces hunger (good)
+    sanity?: number; // Positive increases sanity (good)
+    exhaustion?: number; // Negative reduces exhaustion (good)
+    health?: number; // Positive heals
+  };
+  targetAlliance?: boolean; 
+  
+  // Arena Event Props (for Arena events specifically)
+  damage?: number;
+  type?: string;
+  heal?: number;
+  feed?: number;
 }
 
 export interface LogEntry {

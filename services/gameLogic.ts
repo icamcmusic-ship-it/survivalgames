@@ -1,4 +1,5 @@
 
+
 import { Tribute, TributeStatus, GameEvent, LogEntry, EventType, Trait, WeatherType } from '../types';
 import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nightEvents, arenaEvents, trainingEvents, feastEvents } from '../data/events';
 
@@ -6,7 +7,7 @@ import { bloodbathEvents, bloodbathDeathEvents, generalEvents, fatalEvents, nigh
 const TRAITS: Trait[] = ['Ruthless', 'Survivalist', 'Coward', 'Friendly', 'Unstable', 'Charming', 'Trained', 'Underdog', 'Stoic', 'Devious', 'Clumsy', 'Sharpshooter', 'Naive', 'Glutton', 'Traumatized', 'Broken'];
 
 const ITEM_VALUES: Record<string, number> = {
-    'Explosives': 30, 'Gun': 25, 'Ammo': 10, 'Scythe': 20, 'Bow': 20, 'Arrows': 10, 'Sword': 18, 'Spear': 16, 'Trident': 16, 'Axe': 15, 'Knife': 12, 'Machete': 12, 'Antidote': 20, 'First Aid Kit': 15, 'Bandages': 10, 'Shield': 12, 'Molotov Components': 12, 'Shovel': 8, 'Bread': 6, 'Backpack': 5, 'Water': 5, 'Food': 4, 'Rope': 3, 'Wire': 3, 'Sheet Plastic': 2, 'Rock': 1, 'Stick': 0
+    'Explosives': 30, 'Gun': 25, 'Ammo': 10, 'Scythe': 20, 'Bow': 20, 'Arrows': 10, 'Sword': 18, 'Spear': 16, 'Trident': 16, 'Axe': 15, 'Knife': 12, 'Machete': 12, 'Antidote': 20, 'First Aid Kit': 15, 'Bandages': 10, 'Medicine': 15, 'Shield': 12, 'Molotov Components': 12, 'Shovel': 8, 'Bread': 6, 'Backpack': 5, 'Water': 5, 'Food': 4, 'Rope': 3, 'Wire': 3, 'Sheet Plastic': 2, 'Rock': 1, 'Stick': 0
 };
 
 // --- Initialization ---
@@ -382,7 +383,7 @@ export const simulatePhase = (
         }
         
         // Inventory Cap (Drop random items if > 5)
-        if (t.inventory.length > 5) {
+        while (t.inventory.length > 5) {
             // Prefer keeping weapons/food
             const dropIdx = Math.floor(Math.random() * t.inventory.length);
             t.inventory.splice(dropIdx, 1);
@@ -428,7 +429,7 @@ export const simulatePhase = (
               type: phase === 'Night' ? EventType.Night : EventType.Day,
               day, phase, relatedTributeIds: [actor.id]
           });
-          actor.stats.exhaustion = 0;
+          actor.stats.exhaustion = 50; // Penalty: reduced to 50, not 0
           processedThisTurn.add(actorId);
           continue;
       }
@@ -524,7 +525,7 @@ export const simulatePhase = (
       }
 
       // --- Event Execution ---
-      if (chosenEvent) {
+      if (chosenEvent && group.length > 0) {
           // Movement
           if (chosenEvent.movement) {
               if (chosenEvent.tags?.includes('Hunt') && group.length === 1) {
@@ -559,6 +560,22 @@ export const simulatePhase = (
              });
           }
 
+          // Effects (Stats)
+          if (chosenEvent.effects) {
+              group.forEach(t => {
+                  if (chosenEvent.effects?.hunger) t.stats.hunger = Math.max(0, t.stats.hunger + chosenEvent.effects.hunger);
+                  if (chosenEvent.effects?.sanity) t.stats.sanity = Math.max(0, Math.min(100, t.stats.sanity + chosenEvent.effects.sanity));
+                  if (chosenEvent.effects?.exhaustion) t.stats.exhaustion = Math.max(0, t.stats.exhaustion + chosenEvent.effects.exhaustion);
+                  if (chosenEvent.effects?.health) t.stats.health = Math.min(100, t.stats.health + chosenEvent.effects.health);
+              });
+          }
+
+          // Alliance Formation
+          if ((chosenEvent.tags?.includes('Alliance') || chosenEvent.targetAlliance) && group.length > 1) {
+              const newAllianceId = `alliance-${day}-${group[0].id}`;
+              group.forEach(t => t.allianceId = newAllianceId);
+          }
+
           // Damage
           if (chosenEvent.healthDamage) {
               const targets = chosenEvent.playerCount > 1 ? group : [group[0]];
@@ -567,6 +584,10 @@ export const simulatePhase = (
                   if (t.stats.health <= 0 && !chosenEvent!.fatalities) {
                        t.status = TributeStatus.Dead;
                        t.deathCause = "Succumbed to injuries";
+                       // Try to find a better reason from text
+                       if (chosenEvent?.text.includes('tainted')) t.deathCause = "Poison";
+                       if (chosenEvent?.text.includes('starving') || t.stats.hunger > 90) t.deathCause = "Starvation";
+
                        fallen.push({...t});
                        deathsInPhase++;
                   }
@@ -595,7 +616,11 @@ export const simulatePhase = (
                           victim.killerName = killer.name;
                           killer.killCount++;
                           killer.inventory.push(...victim.inventory); // Loot
+                          // Cap inventory logic on loot? No, wait for next cleanup
                           victim.inventory = [];
+                          
+                          // Sanity hit for killer if not ruthless
+                          if (!killer.traits.includes('Ruthless')) killer.stats.sanity -= 10;
                       }
                       
                       fallen.push({...victim});
@@ -645,6 +670,17 @@ export const simulatePhase = (
           text: `<span class="text-red-500 font-bold">ARENA EVENT:</span> ${ae.text}`, 
           type: EventType.Arena, day, phase 
       });
+
+      // Feast Logic
+      if (ae.type === 'Feast') {
+          tributesMap.forEach(t => {
+              if (t.status === TributeStatus.Alive) {
+                  t.stats.hunger = Math.max(0, t.stats.hunger - (ae.feed || 0));
+                  t.stats.health = Math.min(100, t.stats.health + (ae.heal || 0));
+              }
+          });
+      }
+
       if (ae.damage) {
           tributesMap.forEach(t => {
              if (t.status === TributeStatus.Alive) {
